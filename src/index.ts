@@ -3,10 +3,13 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { parse as parseYaml } from "yaml";
 import { buildGraph } from "./graph.js";
+import type { SamplePost, GeneratedPost } from "./state.js";
+
+const IMAGE_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".gif"]);
 
 interface Config {
   topic: string;
-  sampleFiles: string[];
+  sampleDirs: string[];
 }
 
 function loadConfig(): Config {
@@ -15,23 +18,42 @@ function loadConfig(): Config {
   return parseYaml(raw) as Config;
 }
 
-function loadSamplePosts(sampleFiles: string[]): string[] {
-  return sampleFiles.map((file) => {
-    const filePath = path.resolve(file);
-    return fs.readFileSync(filePath, "utf-8").trim();
+function loadSamplePosts(sampleDirs: string[]): SamplePost[] {
+  return sampleDirs.map((dir) => {
+    const dirPath = path.resolve(dir);
+    const files = fs.readdirSync(dirPath);
+
+    const images = files
+      .filter((f) => IMAGE_EXTENSIONS.has(path.extname(f).toLowerCase()))
+      .map((f) => path.join(dirPath, f));
+
+    const textFile = files.find((f) => path.extname(f).toLowerCase() === ".txt");
+    const text = textFile
+      ? fs.readFileSync(path.join(dirPath, textFile), "utf-8").trim()
+      : "";
+
+    return { images, text };
   });
 }
 
-function saveOutput(post: string): string {
+function saveOutput(post: GeneratedPost): string {
   const outputDir = path.resolve("output");
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const outputPath = path.join(outputDir, `post-${timestamp}.md`);
-  fs.writeFileSync(outputPath, post, "utf-8");
-  return outputPath;
+
+  // Save image
+  const imagePath = path.join(outputDir, `post-${timestamp}.png`);
+  const imageBuffer = Buffer.from(post.imageBase64, "base64");
+  fs.writeFileSync(imagePath, imageBuffer);
+
+  // Save text
+  const textPath = path.join(outputDir, `post-${timestamp}.md`);
+  fs.writeFileSync(textPath, post.text, "utf-8");
+
+  return outputDir;
 }
 
 async function main() {
@@ -39,10 +61,11 @@ async function main() {
 
   const config = loadConfig();
   console.log(`📌 Topic: ${config.topic}`);
-  console.log(`📄 Sample files: ${config.sampleFiles.join(", ")}\n`);
+  console.log(`📂 Sample dirs: ${config.sampleDirs.join(", ")}\n`);
 
-  const posts = loadSamplePosts(config.sampleFiles);
-  console.log(`📥 Loaded ${posts.length} sample posts\n`);
+  const posts = loadSamplePosts(config.sampleDirs);
+  const totalImages = posts.reduce((sum, p) => sum + p.images.length, 0);
+  console.log(`📥 Loaded ${posts.length} samples (${totalImages} images total)\n`);
 
   const graph = buildGraph();
 
@@ -51,10 +74,14 @@ async function main() {
     topic: config.topic,
   });
 
-  const outputPath = saveOutput(result.generatedPost);
-  console.log(`💾 Generated post saved to: ${outputPath}\n`);
-  console.log("--- Generated Post ---\n");
-  console.log(result.generatedPost);
+  if (!result.generatedPost) {
+    throw new Error("No post was generated");
+  }
+
+  const outputDir = saveOutput(result.generatedPost);
+  console.log(`💾 Output saved to: ${outputDir}\n`);
+  console.log("--- Generated Text ---\n");
+  console.log(result.generatedPost.text);
   console.log("\n--- End ---");
 }
 

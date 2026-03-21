@@ -27,8 +27,17 @@ Si chiede quindi inizalmente di discutere delle possibili architetture, capire q
 Una volta definita l'architettura, l'obbiettivo è creare non un prodotto finito inizialmente ma un MVP.
 L'MVP passa per diverse release incrementali, quali:
 
-1. Definizione nodo LLM: i post vengono arcodati in 4/5 file di testo. L'obbiettivo qui è creare un Agente/Prompt che, dati questi post, ne crei uno in uscita in similitudine con quelli ricevuti in ingresso. Il post generato viene salvato in un file md per essere letto dal developer
+1. Definizione nodo LLM: i post vengono hardcodati in N cartelle (una per sample). Ogni cartella contiene:
+   - **1 o più immagini** (screenshot di schedine scommesse con partite, quote, marcatori, ecc.)
+   - **1 file di testo** (testo promozionale/accattivante che accompagna l'immagine nel post Telegram)
+   
+   L'obiettivo è creare un Agente/Prompt che, dati questi post multimediali:
+   - **Analizzi le immagini** delle schedine tramite vision (GPT-4o) per estrarre le scommesse proposte
+   - **Generi in uscita una nuova schedina ottimizzata** (immagine) combinando e ottimizzando le scommesse delle schedine in ingresso
+   - **Generi un testo accattivante** in similitudine con i testi ricevuti in ingresso, che invoglia a giocare
+   
+   Il post generato (immagine + testo) viene salvato in una cartella output per essere rivisto dal developer.
 
-2. I post non verranno più harcodati, ma si definirà un nodo che, dati n canali telegram, vada a pescarli da li e, una volta pescati, li passi in ingresso al nodo definito allo step 1
+2. I post non verranno più hardcodati, ma si definirà un nodo che, dati n canali telegram, vada a pescarli da lì (immagini + testo) e, una volta pescati, li passi in ingresso al nodo definito allo step 1
 
-3. Il posto generato dalla AI verrà salvato su un profilo instagram predefinito, o in alternativa su un foglio di lavoro sul cloud.
+3. Il post generato dalla AI verrà salvato su un profilo instagram predefinito, o in alternativa su un foglio di lavoro sul cloud.

@@ -6,15 +6,22 @@ agentic-workflow/
 │   ├── nodes/
 │   │   └── llm-generator.ts
 │   ├── graph.ts
+│   ├── image-renderer.ts
 │   ├── state.ts
 │   └── index.ts
 ├── config/
 │   └── channels.yaml
 ├── prompts/
+│   ├── image-analysis.md
+│   ├── bet-optimizer.md
 │   └── post-generator.md
 ├── samples/
-│   ├── samples1.txt
-│   └── samples2.txt
+│   ├── sample1/               # Each sample = folder with images + text
+│   │   ├── sample1.jpeg
+│   │   └── sample1.txt
+│   ├── sample2/
+│   ├── sample3/
+│   └── sample4/
 ├── output/                     # Auto-generated at runtime
 ├── docs/
 │   ├── project-definition.md
@@ -31,12 +38,11 @@ agentic-workflow/
 
 ### `state.ts`
 
-Defines the shared **LangGraph state** that flows between nodes. Contains:
+Defines the shared **LangGraph state** and TypeScript interfaces:
 
-- `inputPosts` — array of raw posts collected from samples (or Telegram in future releases)
-- `topic` — the theme to focus on (e.g. "Betting Serie A")
-- `generatedPost` — the post produced by the LLM
-- `publishResult` — outcome of the publishing step (future use)
+- `SamplePost` — a single input post: `images: string[]` (file paths) + `text: string`
+- `GeneratedPost` — output: `imageBase64: string` (PNG) + `text: string` (caption)
+- `WorkflowState` — the LangGraph annotation root with `inputPosts`, `topic`, `generatedPost`, `publishResult`
 
 ### `graph.ts`
 
@@ -48,18 +54,27 @@ Builds and compiles the **LangGraph workflow**. Current flow:
 
 Future releases will add `scraper` and `publisher` nodes.
 
+### `image-renderer.ts`
+
+Generates betting slip images programmatically using **node-canvas**. Takes a `BetSlip` JSON (title, bets, totalOdd) and renders a professional-looking PNG with dark theme, gold accents, green odd badges, and clean layout.
+
 ### `index.ts`
 
 CLI entry point. Responsible for:
 
 1. Loading configuration from `config/channels.yaml`
-2. Reading sample post files
+2. Reading sample directories (images + text per folder)
 3. Invoking the LangGraph workflow
-4. Saving the generated post to `output/`
+4. Saving generated output (PNG image + MD text) to `output/`
 
 ### `nodes/llm-generator.ts`
 
-The LLM generation node. Receives sample posts and a topic via graph state, loads the prompt template, calls OpenAI, and returns the generated post.
+The LLM generation node. Performs 4 internal steps:
+
+1. **Image analysis** — GPT-4o vision reads betting slip images and extracts matches, bet types, odds
+2. **Bet optimization** — GPT-4o generates an optimized bet slip as structured JSON
+3. **Image rendering** — Canvas renders the JSON into a professional PNG image
+4. **Text generation** — GPT-4o writes a caption coherent with the generated bet slip, styled after the sample texts
 
 ## Configuration (`config/`)
 
@@ -68,29 +83,46 @@ The LLM generation node. Receives sample posts and a topic via graph state, load
 Defines the workflow parameters:
 
 - `topic` — the subject for post generation
-- `sampleFiles` — list of file paths containing sample posts (Release 1: hardcoded files; Release 2: replaced by Telegram scraper)
+- `sampleDirs` — list of directories containing sample posts (Release 1: hardcoded; Release 2: replaced by Telegram scraper)
 
 ## Prompts (`prompts/`)
 
+### `image-analysis.md`
+
+Instructs GPT-4o vision to analyze betting slip images and extract structured data: matches, bet types, odds, slip codes.
+
+### `bet-optimizer.md`
+
+Instructs GPT-4o to combine and optimize bets from all analyzed slips into a single new optimized slip, returned as JSON (`BetSlip` format).
+
 ### `post-generator.md`
 
-Markdown prompt template for the LLM. Uses `{topic}` and `{posts}` placeholders that get interpolated at runtime.
+Instructs GPT-4o to write a caption for the generated bet slip, coherent with the actual bets, styled after the sample texts.
 
 ## Samples (`samples/`)
 
-Hardcoded sample posts used as input for Release 1 of the MVP. These files contain real Telegram posts that the LLM uses as style and content reference.
+Hardcoded sample posts for Release 1. Each subfolder represents one Telegram post and contains:
+
+- One or more **images** (`.jpeg`, `.png`) — screenshots of betting slips
+- One **text file** (`.txt`) — the promotional text accompanying the image
 
 ## Output (`output/`)
 
-Auto-created directory where generated posts are saved as timestamped markdown files (e.g. `post-2026-03-21T10-30-00-000Z.md`). Listed in `.gitignore`.
+Auto-created directory where generated posts are saved as timestamped files:
+
+- `post-<timestamp>.png` — the rendered betting slip image
+- `post-<timestamp>.md` — the generated caption text
+
+Listed in `.gitignore`.
 
 ## Environment (`.env`)
 
-Stores sensitive configuration (API keys). Use `.env.example` as template:
+Stores sensitive configuration. Use `.env.example` as template:
 
 | Variable | Required | Description |
 |---|---|---|
-| `OPENAI_API_KEY` | Yes | OpenAI API key |
+| `OPENAI_API_KEY` | Yes | GitHub PAT (or OpenAI key) |
+| `OPENAI_BASE_URL` | Yes | API endpoint (GitHub Models: `https://models.inference.ai.azure.com`) |
 | `OPENAI_MODEL` | No | Model to use (defaults to `gpt-4o`) |
 
 ## Running the Project

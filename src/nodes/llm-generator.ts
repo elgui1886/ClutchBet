@@ -3,22 +3,104 @@ import { HumanMessage } from "@langchain/core/messages";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { WorkflowStateType } from "../state.js";
+import type { SamplePost } from "../state.js";
+import { renderBetSlipImage, type BetSlip } from "../image-renderer.js";
 
-const PROMPT_TEMPLATE_PATH = path.resolve("prompts", "post-generator.md");
+const ANALYSIS_PROMPT_PATH = path.resolve("prompts", "image-analysis.md");
+const OPTIMIZER_PROMPT_PATH = path.resolve("prompts", "bet-optimizer.md");
+const TEXT_PROMPT_PATH = path.resolve("prompts", "post-generator.md");
 
-function loadPromptTemplate(): string {
-  return fs.readFileSync(PROMPT_TEMPLATE_PATH, "utf-8");
+function loadPrompt(filePath: string): string {
+  return fs.readFileSync(filePath, "utf-8");
 }
 
-function buildPrompt(topic: string, posts: string[]): string {
-  const template = loadPromptTemplate();
-  const formattedPosts = posts
-    .map((post, i) => `--- Post ${i + 1} ---\n${post}`)
+function imageToBase64DataUrl(imagePath: string): string {
+  const ext = path.extname(imagePath).toLowerCase().replace(".", "");
+  const mime = ext === "jpg" ? "jpeg" : ext;
+  const data = fs.readFileSync(imagePath);
+  return `data:image/${mime};base64,${data.toString("base64")}`;
+}
+
+/** Step 1: Use GPT-4o vision to analyze all betting slip images and extract bets */
+async function analyzeImages(
+  model: ChatOpenAI,
+  posts: SamplePost[]
+): Promise<string> {
+  const template = loadPrompt(ANALYSIS_PROMPT_PATH);
+
+  const contentParts: Array<
+    | { type: "text"; text: string }
+    | { type: "image_url"; image_url: { url: string } }
+  > = [{ type: "text", text: template }];
+
+  for (let i = 0; i < posts.length; i++) {
+    contentParts.push({
+      type: "text",
+      text: `\n--- Sample ${i + 1} (text) ---\n${posts[i].text}`,
+    });
+    for (const img of posts[i].images) {
+      contentParts.push({
+        type: "image_url",
+        image_url: { url: imageToBase64DataUrl(img) },
+      });
+    }
+  }
+
+  const response = await model.invoke([new HumanMessage({ content: contentParts })]);
+  return typeof response.content === "string"
+    ? response.content
+    : JSON.stringify(response.content);
+}
+
+/** Step 2: LLM generates an optimized bet slip as structured JSON */
+async function optimizeBets(
+  model: ChatOpenAI,
+  analysis: string
+): Promise<BetSlip> {
+  const template = loadPrompt(OPTIMIZER_PROMPT_PATH);
+  const prompt = template.replace("{analysis}", analysis);
+
+  const response = await model.invoke([new HumanMessage(prompt)]);
+  const raw =
+    typeof response.content === "string"
+      ? response.content
+      : JSON.stringify(response.content);
+
+  // Strip markdown code fences if present
+  const cleaned = raw.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+  return JSON.parse(cleaned) as BetSlip;
+}
+
+/** Step 3: Generate caption text based on analysis + sample texts */
+function formatBetSlipForPrompt(slip: BetSlip): string {
+  const lines = [`Schedina: ${slip.title}`, ""];
+  slip.bets.forEach((bet, i) => {
+    lines.push(`${i + 1}. ${bet.homeTeam} vs ${bet.awayTeam} → ${bet.betType} @ ${bet.odd.toFixed(2)}`);
+  });
+  lines.push("", `Quota totale: ${slip.totalOdd.toFixed(2)}`);
+  return lines.join("\n");
+}
+
+async function generateText(
+  model: ChatOpenAI,
+  topic: string,
+  betSlip: BetSlip,
+  sampleTexts: string[]
+): Promise<string> {
+  const template = loadPrompt(TEXT_PROMPT_PATH);
+  const formattedSamples = sampleTexts
+    .map((t, i) => `--- Testo ${i + 1} ---\n${t}`)
     .join("\n\n");
 
-  return template
+  const prompt = template
     .replace("{topic}", topic)
-    .replace("{posts}", formattedPosts);
+    .replace("{bet_slip}", formatBetSlipForPrompt(betSlip))
+    .replace("{sample_texts}", formattedSamples);
+
+  const response = await model.invoke([new HumanMessage(prompt)]);
+  return typeof response.content === "string"
+    ? response.content
+    : JSON.stringify(response.content);
 }
 
 export async function llmGeneratorNode(
@@ -32,21 +114,39 @@ export async function llmGeneratorNode(
 
   const model = new ChatOpenAI({
     modelName: process.env.OPENAI_MODEL ?? "gpt-4o",
-    temperature: 0.8,
+    temperature: 0.7,
     configuration: {
       baseURL: process.env.OPENAI_BASE_URL,
     },
   });
 
-  const prompt = buildPrompt(topic, inputPosts);
-  const response = await model.invoke([new HumanMessage(prompt)]);
+  // Step 1: Analyze images to extract bets
+  console.log("🔍 Analyzing betting slip images...");
+  const analysis = await analyzeImages(model, inputPosts);
+  console.log("✅ Image analysis complete\n");
+  console.log("--- Analysis ---\n" + analysis + "\n--- End Analysis ---\n");
 
-  const generatedPost =
-    typeof response.content === "string"
-      ? response.content
-      : JSON.stringify(response.content);
+  // Step 2: Optimize bets into a new slip (JSON)
+  console.log("🧠 Optimizing bets...");
+  const betSlip = await optimizeBets(model, analysis);
+  console.log(`✅ Optimized slip: ${betSlip.title} (${betSlip.bets.length} events, Q.${betSlip.totalOdd})\n`);
 
-  console.log("\n✅ Post generated successfully\n");
+  // Step 3: Render bet slip image with Canvas
+  console.log("🎨 Rendering betting slip image...");
+  const imageBuffer = renderBetSlipImage(betSlip);
+  const imageBase64 = imageBuffer.toString("base64");
+  console.log("✅ Image rendered\n");
 
-  return { generatedPost };
+  // Step 4: Generate caption text based on the optimized slip
+  console.log("✍️  Generating post text...");
+  const sampleTexts = inputPosts.map((p) => p.text);
+  const generatedText = await generateText(model, topic, betSlip, sampleTexts);
+  console.log("✅ Text generated\n");
+
+  return {
+    generatedPost: {
+      imageBase64,
+      text: generatedText,
+    },
+  };
 }
