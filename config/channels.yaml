@@ -1,0 +1,9 @@
+# Topic to focus on when generating the post
+topic: "Betting Serie A - prossima giornata di campionato"
+
+# Sample post files to use as input for the LLM (Release 1: hardcoded files)
+sampleFiles:
+  - "samples/samples1.txt"
+  - "samples/samples2.txt"
+  - "samples/samples3.txt"
+  - "samples/samples4.txt"
