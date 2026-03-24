@@ -17,6 +17,10 @@ export interface GeneratedPost {
 }
 
 export const WorkflowState = Annotation.Root({
+  telegramChannels: Annotation<string[]>({
+    reducer: (_prev, next) => next,
+    default: () => [],
+  }),
   inputPosts: Annotation<SamplePost[]>({
     reducer: (_prev, next) => next,
     default: () => [],

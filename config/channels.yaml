@@ -1,9 +1,9 @@
 # Topic to focus on when generating the post
 topic: "Betting Serie A - prossima giornata di campionato"
 
-# Sample post directories (each contains images + text file)
-sampleDirs:
-  - "samples/sample1"
-  - "samples/sample2"
-  - "samples/sample3"
-  - "samples/sample4"
+# Telegram channels to scrape for posts
+# Use the channel username (e.g. @channelname) or numeric channel ID
+telegramChannels:
+  - "@your_channel_here"
+  # - "@another_channel"
+  # - "1234567890"  # numeric ID also supported
