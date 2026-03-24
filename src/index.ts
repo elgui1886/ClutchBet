@@ -8,6 +8,7 @@ import type { GeneratedPost } from "./state.js";
 interface Config {
   topic: string;
   telegramChannels: string[];
+  publishChannel?: string;
 }
 
 function loadConfig(): Config {
@@ -48,6 +49,7 @@ async function main() {
   const result = await graph.invoke({
     topic: config.topic,
     telegramChannels: config.telegramChannels,
+    publishChannel: config.publishChannel ?? "",
   });
 
   if (!result.generatedPost) {

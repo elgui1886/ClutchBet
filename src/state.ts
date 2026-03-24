@@ -21,6 +21,10 @@ export const WorkflowState = Annotation.Root({
     reducer: (_prev, next) => next,
     default: () => [],
   }),
+  publishChannel: Annotation<string>({
+    reducer: (_prev, next) => next,
+    default: () => "",
+  }),
   inputPosts: Annotation<SamplePost[]>({
     reducer: (_prev, next) => next,
     default: () => [],

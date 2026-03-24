@@ -4,8 +4,9 @@ import * as path from "node:path";
 import { TelegramClient, Api } from "telegram";
 import { StringSession } from "telegram/sessions";
 import { ConnectionTCPFull } from "telegram/network";
-import { ChatOpenAI } from "@langchain/openai";
+import bigInt from "big-integer";
 import { HumanMessage } from "@langchain/core/messages";
+import { ChatOpenAI } from "@langchain/openai";
 import type { WorkflowStateType } from "../state.js";
 import type { SamplePost } from "../state.js";
 
@@ -22,7 +23,7 @@ function resolvePeer(channel: string): string | Api.PeerChannel {
   // Telegram Web URL → extract numeric ID (the `-` prefix means it's a channel/group)
   const webMatch = channel.match(/web\.telegram\.org\/.*#-?(\d+)/);
   if (webMatch) {
-    return new Api.PeerChannel({ channelId: BigInt(webMatch[1]) });
+    return new Api.PeerChannel({ channelId: bigInt(webMatch[1]) });
   }
 
   // t.me link → extract username
@@ -33,7 +34,7 @@ function resolvePeer(channel: string): string | Api.PeerChannel {
 
   // Pure numeric ID → treat as channel
   if (/^\d+$/.test(channel)) {
-    return new Api.PeerChannel({ channelId: BigInt(channel) });
+    return new Api.PeerChannel({ channelId: bigInt(channel) });
   }
 
   // Already an @username or other string
@@ -56,7 +57,9 @@ async function isRelevantPost(
   filterPrompt: string,
   text: string
 ): Promise<boolean> {
-  const prompt = filterPrompt.replace("{post_text}", text);
+  const prompt = filterPrompt
+    .replace("{today_date}", new Date().toISOString().split("T")[0])
+    .replace("{post_text}", text);
   const response = await model.invoke([new HumanMessage(prompt)]);
   const raw =
     typeof response.content === "string"
@@ -100,24 +103,31 @@ export async function scraperNode(
     connection: ConnectionTCPFull,
   });
 
+  // Prevent GramJS update loop from starting (not needed, causes TIMEOUT errors)
+  (client as any)._loopStarted = true;
   await client.connect();
 
   const model = new ChatOpenAI({
     modelName: process.env.OPENAI_MODEL ?? "gpt-4o",
     temperature: 0,
-    configuration: { baseURL: process.env.OPENAI_BASE_URL },
   });
 
   const filterPrompt = loadPrompt(FILTER_PROMPT_PATH);
   const tempDir = createTempDir();
-  const collectedPosts: SamplePost[] = [];
+
+  // --- Phase 1: Download all candidate messages from Telegram ---
+  interface CandidateMsg {
+    text: string;
+    imgPath: string;
+  }
+  const candidates: CandidateMsg[] = [];
 
   for (const channel of telegramChannels) {
     console.log(`\n📡 Scanning channel: ${channel}`);
     try {
       const peer = resolvePeer(channel);
       console.log(`  🔗 Resolved peer: ${peer}`);
-      const messages = await client.getMessages(peer, { limit: 5 });
+      const messages = await client.getMessages(peer, { limit: 10 });
 
       console.log(`  📋 Fetched ${messages.length} message(s):`);
       for (const msg of messages) {
@@ -132,10 +142,10 @@ export async function scraperNode(
         if (!(msg.media instanceof Api.MessageMediaPhoto)) continue;
 
         const text = msg.message ?? "";
-        console.log(`  🔎 Checking message #${msg.id}...`);
-
-        const relevant = await isRelevantPost(model, filterPrompt, text);
-        if (!relevant) continue;
+        if (!text.trim()) {
+          console.log(`  ⏭️  Skipping message #${msg.id} (no text)`);
+          continue;
+        }
 
         // Download image to temp directory
         const safeName = channel.replace(/[^a-zA-Z0-9_]/g, "");
@@ -148,15 +158,28 @@ export async function scraperNode(
         }
 
         fs.writeFileSync(imgPath, buffer);
-        collectedPosts.push({ images: [imgPath], text });
-        console.log(`  ✅ Post #${msg.id} collected`);
+        candidates.push({ text, imgPath });
+        console.log(`  📥 Downloaded message #${msg.id}`);
       }
     } catch (err) {
       console.error(`  ❌ Error scanning ${channel}:`, err);
     }
   }
 
+  // Disconnect Telegram BEFORE LLM calls to avoid TIMEOUT errors
   await client.disconnect();
+
+  // --- Phase 2: Filter candidates with LLM (no Telegram connection needed) ---
+  const collectedPosts: SamplePost[] = [];
+
+  for (const candidate of candidates) {
+    console.log(`  🔎 Filtering: "${candidate.text.slice(0, 60).replace(/\n/g, " ")}..."`);
+    const relevant = await isRelevantPost(model, filterPrompt, candidate.text);
+    if (relevant) {
+      collectedPosts.push({ images: [candidate.imgPath], text: candidate.text });
+      console.log(`  ✅ Post collected`);
+    }
+  }
 
   console.log(`\n📥 Collected ${collectedPosts.length} relevant post(s) from Telegram\n`);
   return { inputPosts: collectedPosts };

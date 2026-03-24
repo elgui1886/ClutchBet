@@ -11,3 +11,7 @@ topic: "Betting Serie A - prossima giornata di campionato"
 telegramChannels:
   - "https://web.telegram.org/k/#-1259302052"
   - "https://web.telegram.org/k/#-1013023602"
+
+# Channel where the generated post will be published
+# Same formats supported: Web URL, t.me link, @username, numeric ID
+publishChannel: "https://t.me/maremmabet"

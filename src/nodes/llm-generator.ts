@@ -1,10 +1,10 @@
-import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage } from "@langchain/core/messages";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { WorkflowStateType } from "../state.js";
 import type { SamplePost } from "../state.js";
 import { renderBetSlipImage, type BetSlip } from "../image-renderer.js";
+import { ChatOpenAI } from "@langchain/openai";
 
 const ANALYSIS_PROMPT_PATH = path.resolve("prompts", "image-analysis.md");
 const OPTIMIZER_PROMPT_PATH = path.resolve("prompts", "bet-optimizer.md");
@@ -68,7 +68,27 @@ async function optimizeBets(
 
   // Strip markdown code fences if present
   const cleaned = raw.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-  return JSON.parse(cleaned) as BetSlip;
+  const slip = JSON.parse(cleaned) as BetSlip;
+
+  // Force totalOdd to be the actual product of individual odds (LLM often hallucinates this)
+  slip.totalOdd = parseFloat(
+    slip.bets.reduce((acc, b) => acc * b.odd, 1).toFixed(2)
+  );
+
+  // Cap totalOdd at 35 by removing the highest-odd bet until under the limit
+  while (slip.totalOdd > 35 && slip.bets.length > 1) {
+    let maxIdx = 0;
+    for (let i = 1; i < slip.bets.length; i++) {
+      if (slip.bets[i].odd > slip.bets[maxIdx].odd) maxIdx = i;
+    }
+    const removed = slip.bets.splice(maxIdx, 1)[0];
+    console.log(`  ⚠️  Quota ${slip.totalOdd} > 35 — rimossa: ${removed.homeTeam} vs ${removed.awayTeam} (${removed.odd})`);
+    slip.totalOdd = parseFloat(
+      slip.bets.reduce((acc, b) => acc * b.odd, 1).toFixed(2)
+    );
+  }
+
+  return slip;
 }
 
 /** Step 3: Generate caption text based on analysis + sample texts */
@@ -115,9 +135,6 @@ export async function llmGeneratorNode(
   const model = new ChatOpenAI({
     modelName: process.env.OPENAI_MODEL ?? "gpt-4o",
     temperature: 0.7,
-    configuration: {
-      baseURL: process.env.OPENAI_BASE_URL,
-    },
   });
 
   // Step 1: Analyze images to extract bets
@@ -131,9 +148,9 @@ export async function llmGeneratorNode(
   const betSlip = await optimizeBets(model, analysis);
   console.log(`✅ Optimized slip: ${betSlip.title} (${betSlip.bets.length} events, Q.${betSlip.totalOdd})\n`);
 
-  // Step 3: Render bet slip image with Canvas
+  // Step 3: Render bet slip image with Puppeteer
   console.log("🎨 Rendering betting slip image...");
-  const imageBuffer = renderBetSlipImage(betSlip);
+  const imageBuffer = await renderBetSlipImage(betSlip);
   const imageBase64 = imageBuffer.toString("base64");
   console.log("✅ Image rendered\n");
 
