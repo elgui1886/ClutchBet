@@ -50,16 +50,23 @@ An automated workflow that:
 agentic-workflow/
 ├── src/
 │   ├── nodes/
-│   │   ├── scraper.ts          # Node: fetch posts from Telegram via GramJS
+│   │   ├── scraper.ts          # Node: fetch + LLM-filter posts from Telegram via GramJS
 │   │   ├── llm-generator.ts    # Node: prompt → LLM → generated post
-│   │   └── publisher.ts        # Node: publish to Sheets/Instagram
+│   │   └── publisher.ts        # Node: publish to Sheets/Instagram (future)
 │   ├── graph.ts                # LangGraph workflow definition
 │   ├── state.ts                # Shared state type flowing between nodes
+│   ├── image-renderer.ts       # Canvas-based betting slip image renderer
+│   ├── setup-telegram.ts       # One-time CLI script to obtain Telegram session string
 │   └── index.ts                # Entry point (CLI + manual trigger)
 ├── config/
-│   └── channels.yaml           # Channel list, topics, parameters
+│   └── channels.yaml           # Telegram channel list + topic
 ├── prompts/
-│   └── post-generator.md       # LLM prompt template
+│   ├── telegram-filter.md      # LLM prompt: is this post about active Italian football?
+│   ├── image-analysis.md       # LLM prompt: extract bets from betting slip images
+│   ├── bet-optimizer.md        # LLM prompt: generate optimized bet slip as JSON
+│   └── post-generator.md       # LLM prompt: write caption for generated slip
+├── temp/                       # Telegram images downloaded at runtime (gitignored)
+├── output/                     # Generated posts saved here (gitignored)
 ├── package.json
 ├── tsconfig.json
 └── .env                        # API keys (Telegram, OpenAI, etc.)
@@ -68,7 +75,18 @@ agentic-workflow/
 ## LangGraph Workflow
 
 ```
-[START] → [Scraper Node] → [LLM Generator Node] → [Publisher Node] → [END]
+[START] → [Scraper Node] → (no posts?) → [END with log]
+                 ↓
+          (posts found)
+                 ↓
+        [LLM Generator Node] → [END]
+```
+
+**Current flow (Release 2):**
+```
+[START] → [scraper] → conditional edge → [llm_generator] → [END]
+                              ↓
+                       (inputPosts empty) → [END]
 ```
 
 Each node is a TypeScript function that:
@@ -92,21 +110,32 @@ Authentication uses the **Telegram Client API** (not Bot API), which means the a
 | **Public** | Yes | None — accessible to everyone |
 | **Private** | Yes | The Telegram account used must be a **member** of the channel |
 
-### Setup
+### Setup (one-time)
 
 1. Register an app at [my.telegram.org](https://my.telegram.org) → obtain `api_id` and `api_hash`
-2. On first run, GramJS prompts for phone number + OTP code
-3. Session is saved locally (string) → no re-authentication needed on subsequent runs
+2. Add them to `.env` as `TELEGRAM_API_ID` and `TELEGRAM_API_HASH`
+3. Run: `npx tsx src/setup-telegram.ts` — enter phone number + OTP (+ 2FA if enabled)
+4. Copy the printed session string into `.env` as `TELEGRAM_SESSION`
+5. No re-authentication needed on subsequent runs — session persists
 
 ### Configuration
 
 ```yaml
-channels:
-  - name: "Public Channel"
-    username: "channel_name"        # public channels → username
-  - name: "Private Channel"
-    id: -1001234567890              # private channels → numeric channel ID
+# config/channels.yaml
+topic: "Betting Serie A - prossima giornata di campionato"
+
+telegramChannels:
+  - "@channel_username"   # public or private channels (must be a member)
+  - "1234567890"          # numeric channel ID also supported
 ```
+
+### Post Filtering
+
+The scraper does **not** blindly pass all posts to the LLM generator. For each post retrieved from Telegram, GPT-4o evaluates (via `prompts/telegram-filter.md`) whether:
+- The post is about **Italian football** (Serie A, Serie B, Coppa Italia, Nazionale)
+- The referenced match/event is still **upcoming or in progress** (not concluded)
+
+Only posts that pass both criteria are included in `inputPosts`. If none pass, the workflow exits cleanly with a log message.
 
 ### Best Practices
 

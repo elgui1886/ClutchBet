@@ -38,6 +38,10 @@ L'MVP passa per diverse release incrementali, quali:
    
    Il post generato (immagine + testo) viene salvato in una cartella output per essere rivisto dal developer.
 
-2. I post non verranno più hardcodati, ma si definirà un nodo che, dati n canali telegram, vada a pescarli da lì (immagini + testo) e, una volta pescati, li passi in ingresso al nodo definito allo step 1
+2. ✅ **[COMPLETATA]** I post non vengono più hardcodati. È stato definito un nodo `scraper` che, dati N canali Telegram configurati in `channels.yaml`, preleva gli ultimi 5 post per canale (immagine + testo) tramite GramJS (Telegram Client API). Ogni post viene filtrato da GPT-4o tramite un prompt dedicato (`telegram-filter.md`) che verifica:
+   - se il post riguarda il **calcio italiano** (Serie A, Serie B, Coppa Italia, Nazionale)
+   - se l'evento è ancora **attivo** (non concluso)
+   
+   Solo i post rilevanti vengono passati al nodo LLM. Se nessun post supera il filtro, il workflow si ferma con un log.
 
 3. Il post generato dalla AI verrà salvato su un profilo instagram predefinito, o in alternativa su un foglio di lavoro sul cloud.
