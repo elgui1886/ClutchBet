@@ -11,6 +11,35 @@ import type { SamplePost } from "../state.js";
 
 const FILTER_PROMPT_PATH = path.resolve("prompts", "telegram-filter.md");
 
+/**
+ * Resolve a channel identifier from various formats:
+ *  - Telegram Web URL: https://web.telegram.org/k/#-1001259302052
+ *  - t.me link: https://t.me/channelname
+ *  - @username: @channelname
+ *  - Numeric ID: 1259302052
+ */
+function resolvePeer(channel: string): string | Api.PeerChannel {
+  // Telegram Web URL → extract numeric ID (the `-` prefix means it's a channel/group)
+  const webMatch = channel.match(/web\.telegram\.org\/.*#-?(\d+)/);
+  if (webMatch) {
+    return new Api.PeerChannel({ channelId: BigInt(webMatch[1]) });
+  }
+
+  // t.me link → extract username
+  const tmeMatch = channel.match(/t\.me\/([a-zA-Z0-9_]+)/);
+  if (tmeMatch) {
+    return `@${tmeMatch[1]}`;
+  }
+
+  // Pure numeric ID → treat as channel
+  if (/^\d+$/.test(channel)) {
+    return new Api.PeerChannel({ channelId: BigInt(channel) });
+  }
+
+  // Already an @username or other string
+  return channel;
+}
+
 function loadPrompt(filePath: string): string {
   return fs.readFileSync(filePath, "utf-8");
 }
@@ -36,8 +65,8 @@ async function isRelevantPost(
 
   const cleaned = raw.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
   try {
-    const result = JSON.parse(cleaned) as { relevant: boolean; reason: string };
-    console.log(`     → ${result.relevant ? "✅" : "❌"} ${result.reason}`);
+    const result = JSON.parse(cleaned) as { relevant: boolean; reason: string; message: string };
+    console.log(`     → ${result.relevant ? "✅" : "❌"} ${result.reason} (${result.message})`);
     return result.relevant;
   } catch {
     console.warn("     ⚠️  Could not parse LLM filter response:", cleaned);
@@ -86,7 +115,17 @@ export async function scraperNode(
   for (const channel of telegramChannels) {
     console.log(`\n📡 Scanning channel: ${channel}`);
     try {
-      const messages = await client.getMessages(channel, { limit: 5 });
+      const peer = resolvePeer(channel);
+      console.log(`  🔗 Resolved peer: ${peer}`);
+      const messages = await client.getMessages(peer, { limit: 5 });
+
+      console.log(`  📋 Fetched ${messages.length} message(s):`);
+      for (const msg of messages) {
+        const date = msg.date ? new Date(msg.date * 1000).toISOString() : "unknown";
+        const hasPhoto = msg instanceof Api.Message && msg.media instanceof Api.MessageMediaPhoto;
+        const preview = (msg.message ?? "").slice(0, 80).replace(/\n/g, " ");
+        console.log(`     #${msg.id} [${date}] photo=${hasPhoto} "${preview}${(msg.message ?? "").length > 80 ? "…" : ""}"`);
+      }
 
       for (const msg of messages) {
         if (!(msg instanceof Api.Message)) continue;

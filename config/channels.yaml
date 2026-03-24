@@ -2,8 +2,12 @@
 topic: "Betting Serie A - prossima giornata di campionato"
 
 # Telegram channels to scrape for posts
-# Use the channel username (e.g. @channelname) or numeric channel ID
+# Supported formats:
+#   - Telegram Web URL: "https://web.telegram.org/k/#-1001259302052"
+#   - t.me link:        "https://t.me/channelname"
+#   - @username:        "@channelname"
+#   - Numeric ID:       "1259302052"
+# To list your channels with IDs, run: npx tsx src/list-channels.ts
 telegramChannels:
-  - "@your_channel_here"
-  # - "@another_channel"
-  # - "1234567890"  # numeric ID also supported
+  - "https://web.telegram.org/k/#-1259302052"
+  - "https://web.telegram.org/k/#-1013023602"

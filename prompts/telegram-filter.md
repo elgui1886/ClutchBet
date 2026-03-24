@@ -10,6 +10,6 @@ Telegram post text:
 ---
 
 Respond ONLY with a valid JSON object in this exact format, with no extra text or markdown:
-{"relevant": true, "reason": "brief explanation"}
+{"relevant": true, "reason": "brief explanation", "message":"post message"}
 or
-{"relevant": false, "reason": "brief explanation"}
+{"relevant": false, "reason": "brief explanation", "message":"post message"}
