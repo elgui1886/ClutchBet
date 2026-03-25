@@ -44,4 +44,8 @@ L'MVP passa per diverse release incrementali, quali:
    
    Solo i post rilevanti vengono passati al nodo LLM. Se nessun post supera il filtro, il workflow si ferma con un log.
 
-3. Il post generato dalla AI verrà salvato su un profilo instagram predefinito, o in alternativa su un foglio di lavoro sul cloud.
+3. ✅ **[COMPLETATA]** Il post generato dalla AI viene pubblicato automaticamente su un canale Telegram configurato (`publishChannel` in `channels.yaml`). Il nodo `publisher`:
+   - Connette a Telegram via GramJS usando la stessa sessione dello scraper
+   - Invia l'immagine generata (PNG) + testo caption al canale target
+   - Se la caption supera i 1024 caratteri (limite Telegram), la tronca sull'immagine e invia il testo completo come messaggio di follow-up
+   - Se `publishChannel` non è configurato, il passaggio viene saltato con un log

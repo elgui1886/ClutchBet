@@ -5,8 +5,8 @@
 An automated workflow that:
 
 1. **Scrapes** Telegram channels (public and private) for the latest posts related to a configurable topic
-2. **Generates** a new post via LLM, built in similarity to the collected posts
-3. **Publishes** the generated post to Instagram (or Google Sheets as fallback)
+2. **Generates** a new optimized betting slip (image + caption) via LLM, built in similarity to the collected posts
+3. **Publishes** the generated post to a configured Telegram channel
 
 ## Architecture Decision
 
@@ -37,10 +37,11 @@ An automated workflow that:
 | **Language** | TypeScript | Primary development language |
 | **Workflow Engine** | LangGraph.js | Graph-based workflow orchestration |
 | **Telegram Scraping** | GramJS (`telegram` on npm) | Telegram Client API — read messages from public and private channels |
-| **LLM** | OpenAI SDK for Node.js | Post generation (GPT-4o or model of choice) |
-| **Publishing (MVP)** | Google Sheets API | Store generated posts for review |
-| **Publishing (Future)** | Meta Graph API | Post to Instagram (requires Business account) |
-| **Trigger** | CLI (`tsx`) | Manual execution |
+| **Telegram Publishing** | GramJS (`telegram` on npm) | Send generated posts (image + caption) to a target Telegram channel |
+| **LLM** | OpenAI SDK (`@langchain/openai`) | GPT-4o / GPT-4o-mini via GitHub Models endpoint for filtering, analysis, optimization, caption generation |
+| **Image Rendering** | Puppeteer (headless Chrome) | Renders HTML/CSS bet-slip template to PNG screenshot |
+| **Publishing** | Telegram channel | Generated post sent directly to a configured Telegram channel |
+| **Trigger** | CLI (`tsx`) | Manual execution via `npm start` |
 | **Scheduling (Future)** | node-cron / system cron | Daily automated execution |
 | **Configuration** | YAML + .env | Channels, topics, API keys |
 
@@ -51,45 +52,41 @@ agentic-workflow/
 ├── src/
 │   ├── nodes/
 │   │   ├── scraper.ts          # Node: fetch + LLM-filter posts from Telegram via GramJS
-│   │   ├── llm-generator.ts    # Node: prompt → LLM → generated post
-│   │   └── publisher.ts        # Node: publish to Sheets/Instagram (future)
-│   ├── graph.ts                # LangGraph workflow definition
+│   │   ├── llm-generator.ts    # Node: image analysis + bet optimization + image render + caption
+│   │   └── publisher.ts        # Node: publish generated post to Telegram channel
+│   ├── templates/
+│   │   └── bet-slip.html       # HTML/CSS template for betting slip image rendering
+│   ├── graph.ts                # LangGraph workflow definition (scraper → llm_generator → publisher)
 │   ├── state.ts                # Shared state type flowing between nodes
-│   ├── image-renderer.ts       # Canvas-based betting slip image renderer
+│   ├── image-renderer.ts       # Puppeteer-based betting slip image renderer
+│   ├── list-channels.ts        # Utility: list all Telegram channels/groups with IDs
 │   ├── setup-telegram.ts       # One-time CLI script to obtain Telegram session string
 │   └── index.ts                # Entry point (CLI + manual trigger)
 ├── config/
-│   └── channels.yaml           # Telegram channel list + topic
+│   └── channels.yaml           # Telegram channel list + topic + publish channel
 ├── prompts/
-│   ├── telegram-filter.md      # LLM prompt: is this post about active Italian football?
-│   ├── image-analysis.md       # LLM prompt: extract bets from betting slip images
-│   ├── bet-optimizer.md        # LLM prompt: generate optimized bet slip as JSON
-│   └── post-generator.md       # LLM prompt: write caption for generated slip
+│   ├── telegram-filter.md      # LLM prompt: is this post about active Italian football? (uses {today_date})
+│   ├── image-analysis.md       # LLM prompt: extract bets from betting slip images via vision
+│   ├── bet-optimizer.md        # LLM prompt: generate optimized bet slip as JSON (totalOdd = product, cap 35)
+│   └── post-generator.md       # LLM prompt: write full-detail caption for generated slip
 ├── temp/                       # Telegram images downloaded at runtime (gitignored)
 ├── output/                     # Generated posts saved here (gitignored)
 ├── package.json
 ├── tsconfig.json
-└── .env                        # API keys (Telegram, OpenAI, etc.)
+└── .env                        # API keys (Telegram, OpenAI/GitHub Models)
 ```
 
 ## LangGraph Workflow
 
 ```
-[START] → [Scraper Node] → (no posts?) → [END with log]
-                 ↓
+[START] → [scraper] → (inputPosts empty?) → [END]
+                ↓
           (posts found)
-                 ↓
-        [LLM Generator Node] → [END]
+                ↓
+        [llm_generator] → [publisher] → [END]
 ```
 
-**Current flow (Release 2):**
-```
-[START] → [scraper] → conditional edge → [llm_generator] → [END]
-                              ↓
-                       (inputPosts empty) → [END]
-```
-
-Each node is a TypeScript function that:
+Each node is a TypeScript async function that:
 
 - Receives the current **graph state**
 - Executes its logic
