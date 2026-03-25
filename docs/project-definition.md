@@ -45,3 +45,42 @@ L'MVP passa per diverse release incrementali, quali:
    Solo i post rilevanti vengono passati al nodo LLM. Se nessun post supera il filtro, il workflow si ferma con un log.
 
 3. Il post generato dalla AI verrà salvato su un profilo instagram predefinito, o in alternativa su un foglio di lavoro sul cloud.
+
+## Workflow 2: Channel Analyzer
+
+Workflow separato, one-off, pensato per essere eseguito tipicamente una sola volta per canale. L'obiettivo è produrre un documento di analisi editoriale del canale Telegram.
+
+### Flusso
+
+1. **Lettura post** — Dato un canale Telegram e un arco temporale configurabile (default 3 mesi), il workflow legge **tutti** i post del canale (testo, immagini, video references) tramite paginazione GramJS.
+2. **Chunking** — I post vengono suddivisi in chunk da ~20 post per gestire il volume entro i limiti di context window dell'LLM.
+3. **Analisi parziale** — Ogni chunk viene analizzato da GPT-4o (testo + fino a 10 immagini per chunk), che produce un'analisi parziale su: tone of voice, temi, pattern strutturali, stile visivo, frequenza di pubblicazione.
+4. **Sintesi finale** — Tutte le analisi parziali vengono sintetizzate da GPT-4o in un unico documento markdown strutturato.
+
+### Output
+
+Per ogni canale analizzato viene generato un file `analysis/<nome-canale>.md` con sezioni:
+- Identità del canale
+- Tone of voice (con esempi)
+- Piano editoriale
+- Pattern di pubblicazione (frequenza, orari, giorni)
+- Stile visivo
+- Struttura tipo dei post
+- Strategie di engagement
+- Punti di forza e peculiarità
+- Aree di miglioramento
+
+### Configurazione
+
+Il workflow si configura tramite `config/analysis.yaml`:
+```yaml
+timeRangeMonths: 3
+telegramChannels:
+  - "@your_channel_here"
+```
+
+### Esecuzione
+
+```bash
+npm run analyze
+```

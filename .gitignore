@@ -3,3 +3,4 @@ dist/
 output/
 temp/
 .env
+analysis/*.md

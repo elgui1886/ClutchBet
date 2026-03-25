@@ -1,13 +1,13 @@
 import "dotenv/config";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { TelegramClient, Api } from "telegram";
-import { StringSession } from "telegram/sessions";
-import { ConnectionTCPFull } from "telegram/network";
-import { ChatOpenAI } from "@langchain/openai";
+import { Api } from "telegram";
 import { HumanMessage } from "@langchain/core/messages";
+import { createTelegramClient } from "../../shared/telegram-client.js";
+import { createModel } from "../../shared/llm.js";
 import type { WorkflowStateType } from "../state.js";
 import type { SamplePost } from "../state.js";
+import type { ChatOpenAI } from "@langchain/openai";
 
 const FILTER_PROMPT_PATH = path.resolve("prompts", "telegram-filter.md");
 
@@ -55,29 +55,8 @@ export async function scraperNode(
     return { inputPosts: [] };
   }
 
-  const apiId = parseInt(process.env.TELEGRAM_API_ID ?? "");
-  const apiHash = process.env.TELEGRAM_API_HASH ?? "";
-  const sessionStr = process.env.TELEGRAM_SESSION ?? "";
-
-  if (!apiId || !apiHash || !sessionStr) {
-    throw new Error(
-      "Missing TELEGRAM_API_ID, TELEGRAM_API_HASH or TELEGRAM_SESSION in environment.\n" +
-        "Run: npx tsx src/setup-telegram.ts"
-    );
-  }
-
-  const client = new TelegramClient(new StringSession(sessionStr), apiId, apiHash, {
-    connectionRetries: 5,
-    connection: ConnectionTCPFull,
-  });
-
-  await client.connect();
-
-  const model = new ChatOpenAI({
-    modelName: process.env.OPENAI_MODEL ?? "gpt-4o",
-    temperature: 0,
-    configuration: { baseURL: process.env.OPENAI_BASE_URL },
-  });
+  const client = await createTelegramClient();
+  const model = createModel();
 
   const filterPrompt = loadPrompt(FILTER_PROMPT_PATH);
   const tempDir = createTempDir();

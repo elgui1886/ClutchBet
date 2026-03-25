@@ -1,0 +1,8 @@
+# Time range (in months) of posts to analyze per channel
+timeRangeMonths: 3
+
+# Telegram channels to analyze
+# Use the channel username (e.g. @channelname) or numeric channel ID
+telegramChannels:
+  - "@your_channel_here"
+  # - "@another_channel"

@@ -46,60 +46,82 @@ An automated workflow that:
 
 ## Project Structure
 
+The codebase is organized with clean separation between workflows and shared infrastructure:
+
 ```
 agentic-workflow/
 ├── src/
-│   ├── nodes/
-│   │   ├── scraper.ts          # Node: fetch + LLM-filter posts from Telegram via GramJS
-│   │   ├── llm-generator.ts    # Node: prompt → LLM → generated post
-│   │   └── publisher.ts        # Node: publish to Sheets/Instagram (future)
-│   ├── graph.ts                # LangGraph workflow definition
-│   ├── state.ts                # Shared state type flowing between nodes
-│   ├── image-renderer.ts       # Canvas-based betting slip image renderer
-│   ├── setup-telegram.ts       # One-time CLI script to obtain Telegram session string
-│   └── index.ts                # Entry point (CLI + manual trigger)
+│   ├── shared/                         # Shared modules used by both workflows
+│   │   ├── telegram-client.ts          # createTelegramClient() — GramJS factory
+│   │   ├── llm.ts                      # createModel() — ChatOpenAI factory
+│   │   └── config.ts                   # loadYamlConfig<T>() — YAML config loader
+│   ├── post-generator/                 # Workflow 1: Post generation
+│   │   ├── index.ts                    # Entry point (npm run start)
+│   │   ├── graph.ts                    # LangGraph workflow definition
+│   │   ├── state.ts                    # WorkflowState, SamplePost, GeneratedPost
+│   │   ├── image-renderer.ts           # Canvas-based betting slip image renderer
+│   │   └── nodes/
+│   │       ├── scraper.ts              # Telegram scraper + LLM filter node
+│   │       └── llm-generator.ts        # Bet analysis + optimization + caption node
+│   ├── channel-analyzer/               # Workflow 2: Channel analysis (one-off)
+│   │   ├── index.ts                    # Entry point (npm run analyze)
+│   │   ├── graph.ts                    # LangGraph workflow definition
+│   │   ├── state.ts                    # AnalysisState, ChannelPost
+│   │   └── nodes/
+│   │       ├── channel-reader.ts       # Fetch all posts within time range
+│   │       ├── chunk-splitter.ts       # Split posts into analysis chunks
+│   │       ├── chunk-analyzer.ts       # LLM partial analysis per chunk
+│   │       └── analysis-synthesizer.ts # LLM synthesis into final document
+│   └── setup-telegram.ts              # One-time CLI script for Telegram auth
 ├── config/
-│   └── channels.yaml           # Telegram channel list + topic
+│   ├── channels.yaml                   # Post-generator config (topic + channels)
+│   └── analysis.yaml                   # Channel-analyzer config (time range + channels)
 ├── prompts/
-│   ├── telegram-filter.md      # LLM prompt: is this post about active Italian football?
-│   ├── image-analysis.md       # LLM prompt: extract bets from betting slip images
-│   ├── bet-optimizer.md        # LLM prompt: generate optimized bet slip as JSON
-│   └── post-generator.md       # LLM prompt: write caption for generated slip
-├── temp/                       # Telegram images downloaded at runtime (gitignored)
-├── output/                     # Generated posts saved here (gitignored)
+│   ├── telegram-filter.md              # LLM prompt: is this post about active Italian football?
+│   ├── image-analysis.md               # LLM prompt: extract bets from betting slip images
+│   ├── bet-optimizer.md                # LLM prompt: generate optimized bet slip as JSON
+│   ├── post-generator.md               # LLM prompt: write caption for generated slip
+│   ├── chunk-analysis.md               # LLM prompt: partial channel analysis per chunk
+│   └── analysis-synthesis.md           # LLM prompt: synthesize chunks into final document
+├── analysis/                           # Channel analysis output (.md per channel)
+├── temp/                               # Telegram images downloaded at runtime (gitignored)
+├── output/                             # Generated posts saved here (gitignored)
 ├── package.json
 ├── tsconfig.json
-└── .env                        # API keys (Telegram, OpenAI, etc.)
+└── .env                                # API keys (Telegram, OpenAI, etc.)
 ```
 
-## LangGraph Workflow
+## LangGraph Workflows
 
-```
-[START] → [Scraper Node] → (no posts?) → [END with log]
-                 ↓
-          (posts found)
-                 ↓
-        [LLM Generator Node] → [END]
-```
-
-**Current flow (Release 2):**
-```
-[START] → [scraper] → conditional edge → [llm_generator] → [END]
-                              ↓
-                       (inputPosts empty) → [END]
-```
-
-Each node is a TypeScript function that:
-
-- Receives the current **graph state**
-- Executes its logic
-- Returns the **updated state**
+Both workflows follow the same LangGraph pattern: each node is a TypeScript function that receives the current **graph state**, executes its logic, and returns the **updated state**.
 
 This pattern allows:
 
 - Independent testing of each node in isolation
 - Future addition of conditional branching, loops, human-in-the-loop, or retry logic per node
 - Clean separation of concerns
+
+### Workflow 1: Post Generator
+
+```
+[START] → [scraper] → conditional edge → [llm_generator] → [END]
+                              ↓
+                       (inputPosts empty) → [END]
+```
+
+Scrapes Telegram channels, filters posts via GPT-4o, then generates a new betting post (image + caption).
+
+### Workflow 2: Channel Analyzer
+
+```
+[START] → [channel_reader] → [chunk_splitter] → [chunk_analyzer]
+                                                       ↓
+                                            (more chunks? loop back)
+                                                  ↙           ↘
+                                        [chunk_analyzer]    [synthesizer] → [END]
+```
+
+Reads all posts from a channel within a configurable time range, splits them into chunks, analyzes each chunk via GPT-4o (map phase), then synthesizes all partial analyses into a final structured markdown document (reduce phase). Uses a conditional edge loop: after each `chunk_analyzer` execution, if there are remaining chunks, it loops back; otherwise it proceeds to `synthesizer`.
 
 ## Telegram Access Strategy
 

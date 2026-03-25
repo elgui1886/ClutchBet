@@ -1,10 +1,11 @@
-import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage } from "@langchain/core/messages";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { createModel } from "../../shared/llm.js";
 import type { WorkflowStateType } from "../state.js";
 import type { SamplePost } from "../state.js";
 import { renderBetSlipImage, type BetSlip } from "../image-renderer.js";
+import type { ChatOpenAI } from "@langchain/openai";
 
 const ANALYSIS_PROMPT_PATH = path.resolve("prompts", "image-analysis.md");
 const OPTIMIZER_PROMPT_PATH = path.resolve("prompts", "bet-optimizer.md");
@@ -112,13 +113,7 @@ export async function llmGeneratorNode(
     throw new Error("No input posts provided to LLM generator node");
   }
 
-  const model = new ChatOpenAI({
-    modelName: process.env.OPENAI_MODEL ?? "gpt-4o",
-    temperature: 0.7,
-    configuration: {
-      baseURL: process.env.OPENAI_BASE_URL,
-    },
-  });
+  const model = createModel({ temperature: 0.7 });
 
   // Step 1: Analyze images to extract bets
   console.log("🔍 Analyzing betting slip images...");

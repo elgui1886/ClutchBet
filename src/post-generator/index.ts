@@ -1,19 +1,13 @@
 import "dotenv/config";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { parse as parseYaml } from "yaml";
+import { loadYamlConfig } from "../shared/config.js";
 import { buildGraph } from "./graph.js";
 import type { GeneratedPost } from "./state.js";
 
 interface Config {
   topic: string;
   telegramChannels: string[];
-}
-
-function loadConfig(): Config {
-  const configPath = path.resolve("config", "channels.yaml");
-  const raw = fs.readFileSync(configPath, "utf-8");
-  return parseYaml(raw) as Config;
 }
 
 function saveOutput(post: GeneratedPost): string {
@@ -39,9 +33,9 @@ function saveOutput(post: GeneratedPost): string {
 async function main() {
   console.log("🚀 Starting agentic workflow...\n");
 
-  const config = loadConfig();
+  const config = loadYamlConfig<Config>("channels.yaml");
   console.log(`📌 Topic: ${config.topic}`);
-  console.log(`� Channels: ${config.telegramChannels.join(", ")}\n`);
+  console.log(`📡 Channels: ${config.telegramChannels.join(", ")}\n`);
 
   const graph = buildGraph();
 
