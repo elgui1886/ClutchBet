@@ -1,49 +1,14 @@
 import "dotenv/config";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { TelegramClient, Api } from "telegram";
-import { StringSession } from "telegram/sessions";
-import { ConnectionTCPFull } from "telegram/network";
-import bigInt from "big-integer";
+import { Api } from "telegram";
 import { HumanMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
-import type { WorkflowStateType } from "../state.js";
-import type { SamplePost } from "../state.js";
+import { createTelegramClient, resolvePeer } from "../../shared/telegram-utils.js";
+import { loadPrompt } from "../../shared/llm-utils.js";
+import type { WorkflowStateType, SamplePost } from "../state.js";
 
 const FILTER_PROMPT_PATH = path.resolve("prompts", "telegram-filter.md");
-
-/**
- * Resolve a channel identifier from various formats:
- *  - Telegram Web URL: https://web.telegram.org/k/#-1001259302052
- *  - t.me link: https://t.me/channelname
- *  - @username: @channelname
- *  - Numeric ID: 1259302052
- */
-function resolvePeer(channel: string): string | Api.PeerChannel {
-  // Telegram Web URL → extract numeric ID (the `-` prefix means it's a channel/group)
-  const webMatch = channel.match(/web\.telegram\.org\/.*#-?(\d+)/);
-  if (webMatch) {
-    return new Api.PeerChannel({ channelId: bigInt(webMatch[1]) });
-  }
-
-  // t.me link → extract username
-  const tmeMatch = channel.match(/t\.me\/([a-zA-Z0-9_]+)/);
-  if (tmeMatch) {
-    return `@${tmeMatch[1]}`;
-  }
-
-  // Pure numeric ID → treat as channel
-  if (/^\d+$/.test(channel)) {
-    return new Api.PeerChannel({ channelId: bigInt(channel) });
-  }
-
-  // Already an @username or other string
-  return channel;
-}
-
-function loadPrompt(filePath: string): string {
-  return fs.readFileSync(filePath, "utf-8");
-}
 
 function createTempDir(): string {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -87,25 +52,7 @@ export async function scraperNode(
     return { inputPosts: [] };
   }
 
-  const apiId = parseInt(process.env.TELEGRAM_API_ID ?? "");
-  const apiHash = process.env.TELEGRAM_API_HASH ?? "";
-  const sessionStr = process.env.TELEGRAM_SESSION ?? "";
-
-  if (!apiId || !apiHash || !sessionStr) {
-    throw new Error(
-      "Missing TELEGRAM_API_ID, TELEGRAM_API_HASH or TELEGRAM_SESSION in environment.\n" +
-        "Run: npx tsx src/setup-telegram.ts"
-    );
-  }
-
-  const client = new TelegramClient(new StringSession(sessionStr), apiId, apiHash, {
-    connectionRetries: 5,
-    connection: ConnectionTCPFull,
-  });
-
-  // Prevent GramJS update loop from starting (not needed, causes TIMEOUT errors)
-  (client as any)._loopStarted = true;
-  await client.connect();
+  const client = await createTelegramClient();
 
   const model = new ChatOpenAI({
     modelName: process.env.OPENAI_MODEL ?? "gpt-4o",

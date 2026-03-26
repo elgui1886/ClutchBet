@@ -5,6 +5,8 @@
   "main": "dist/index.js",
   "scripts": {
     "start": "tsx src/index.ts",
+    "generation": "tsx src/index.ts generation",
+    "analysis": "tsx src/index.ts analysis",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

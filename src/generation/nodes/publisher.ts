@@ -1,31 +1,7 @@
 import "dotenv/config";
-import { TelegramClient, Api } from "telegram";
-import { StringSession } from "telegram/sessions";
-import { ConnectionTCPFull } from "telegram/network";
 import { CustomFile } from "telegram/client/uploads";
-import bigInt from "big-integer";
+import { createTelegramClient, resolvePeer } from "../../shared/telegram-utils.js";
 import type { WorkflowStateType } from "../state.js";
-
-/**
- * Resolve a channel identifier from various formats (same logic as scraper).
- */
-function resolvePeer(channel: string): string | Api.PeerChannel {
-  const webMatch = channel.match(/web\.telegram\.org\/.*#-?(\d+)/);
-  if (webMatch) {
-    return new Api.PeerChannel({ channelId: bigInt(webMatch[1]) });
-  }
-
-  const tmeMatch = channel.match(/t\.me\/([a-zA-Z0-9_]+)/);
-  if (tmeMatch) {
-    return `@${tmeMatch[1]}`;
-  }
-
-  if (/^\d+$/.test(channel)) {
-    return new Api.PeerChannel({ channelId: bigInt(channel) });
-  }
-
-  return channel;
-}
 
 export async function publisherNode(
   state: WorkflowStateType
@@ -42,24 +18,7 @@ export async function publisherNode(
     return { publishResult: "skipped: no generatedPost" };
   }
 
-  const apiId = parseInt(process.env.TELEGRAM_API_ID ?? "");
-  const apiHash = process.env.TELEGRAM_API_HASH ?? "";
-  const sessionStr = process.env.TELEGRAM_SESSION ?? "";
-
-  if (!apiId || !apiHash || !sessionStr) {
-    throw new Error(
-      "Missing TELEGRAM_API_ID, TELEGRAM_API_HASH or TELEGRAM_SESSION in environment."
-    );
-  }
-
-  const client = new TelegramClient(new StringSession(sessionStr), apiId, apiHash, {
-    connectionRetries: 5,
-    connection: ConnectionTCPFull,
-  });
-
-  // Prevent GramJS update loop from starting (not needed, causes TIMEOUT errors)
-  (client as any)._loopStarted = true;
-  await client.connect();
+  const client = await createTelegramClient();
 
   try {
     const peer = resolvePeer(publishChannel);

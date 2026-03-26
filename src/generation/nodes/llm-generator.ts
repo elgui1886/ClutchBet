@@ -1,18 +1,14 @@
 import { HumanMessage } from "@langchain/core/messages";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { WorkflowStateType } from "../state.js";
-import type { SamplePost } from "../state.js";
+import type { WorkflowStateType, SamplePost } from "../state.js";
 import { renderBetSlipImage, type BetSlip } from "../image-renderer.js";
+import { loadPrompt } from "../../shared/llm-utils.js";
 import { ChatOpenAI } from "@langchain/openai";
 
 const ANALYSIS_PROMPT_PATH = path.resolve("prompts", "image-analysis.md");
 const OPTIMIZER_PROMPT_PATH = path.resolve("prompts", "bet-optimizer.md");
 const TEXT_PROMPT_PATH = path.resolve("prompts", "post-generator.md");
-
-function loadPrompt(filePath: string): string {
-  return fs.readFileSync(filePath, "utf-8");
-}
 
 function imageToBase64DataUrl(imagePath: string): string {
   const ext = path.extname(imagePath).toLowerCase().replace(".", "");

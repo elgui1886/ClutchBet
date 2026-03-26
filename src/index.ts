@@ -1,70 +1,37 @@
-import "dotenv/config";
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { parse as parseYaml } from "yaml";
-import { buildGraph } from "./graph.js";
-import type { GeneratedPost } from "./state.js";
+/**
+ * CLI Dispatcher — routes to the correct workflow based on the first argument.
+ *
+ * Usage:
+ *   npm start -- generation    Run the post-generation workflow
+ *   npm start -- analysis      Run the channel-analysis workflow
+ */
 
-interface Config {
-  topic: string;
-  telegramChannels: string[];
-  publishChannel?: string;
-}
+const workflow = process.argv[2];
 
-function loadConfig(): Config {
-  const configPath = path.resolve("config", "channels.yaml");
-  const raw = fs.readFileSync(configPath, "utf-8");
-  return parseYaml(raw) as Config;
-}
-
-function saveOutput(post: GeneratedPost): string {
-  const outputDir = path.resolve("output");
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
+async function run() {
+  switch (workflow) {
+    case "generation": {
+      const { main } = await import("./generation/index.js");
+      await main();
+      break;
+    }
+    case "analysis": {
+      const { main } = await import("./analysis/index.js");
+      await main();
+      break;
+    }
+    default:
+      console.error(
+        `❌ Unknown workflow: "${workflow ?? ""}"\n\n` +
+          "Usage:\n" +
+          "  npm start -- generation   Run the post-generation workflow\n" +
+          "  npm start -- analysis     Run the channel-analysis workflow\n"
+      );
+      process.exit(1);
   }
-
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-
-  // Save image
-  const imagePath = path.join(outputDir, `post-${timestamp}.png`);
-  const imageBuffer = Buffer.from(post.imageBase64, "base64");
-  fs.writeFileSync(imagePath, imageBuffer);
-
-  // Save text
-  const textPath = path.join(outputDir, `post-${timestamp}.md`);
-  fs.writeFileSync(textPath, post.text, "utf-8");
-
-  return outputDir;
 }
 
-async function main() {
-  console.log("🚀 Starting agentic workflow...\n");
-
-  const config = loadConfig();
-  console.log(`📌 Topic: ${config.topic}`);
-  console.log(`� Channels: ${config.telegramChannels.join(", ")}\n`);
-
-  const graph = buildGraph();
-
-  const result = await graph.invoke({
-    topic: config.topic,
-    telegramChannels: config.telegramChannels,
-    publishChannel: config.publishChannel ?? "",
-  });
-
-  if (!result.generatedPost) {
-    console.log("⚠️  No relevant posts found on Telegram. Workflow stopped.");
-    process.exit(0);
-  }
-
-  const outputDir = saveOutput(result.generatedPost);
-  console.log(`💾 Output saved to: ${outputDir}\n`);
-  console.log("--- Generated Text ---\n");
-  console.log(result.generatedPost.text);
-  console.log("\n--- End ---");
-}
-
-main().catch((err) => {
-  console.error("❌ Workflow failed:", err);
+run().catch((err) => {
+  console.error(`❌ Workflow "${workflow}" failed:`, err);
   process.exit(1);
 });

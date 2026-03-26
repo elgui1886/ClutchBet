@@ -1,0 +1,10 @@
+# Channel to analyze (one-off analysis tool)
+# Supported formats:
+#   - Telegram Web URL: "https://web.telegram.org/k/#-1001259302052"
+#   - t.me link:        "https://t.me/channelname"
+#   - @username:        "@channelname"
+#   - Numeric ID:       "1259302052"
+channel: "@channelname"
+
+# How many months of history to analyze (from today backwards)
+months: 3
