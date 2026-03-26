@@ -114,9 +114,12 @@ async function generateText(
     .replace("{sample_texts}", formattedSamples);
 
   const response = await model.invoke([new HumanMessage(prompt)]);
-  return typeof response.content === "string"
+  const raw = typeof response.content === "string"
     ? response.content
     : JSON.stringify(response.content);
+
+  // Strip any "--- Testo ---" / "-- Testo del post --" header the LLM may prepend
+  return raw.replace(/^-{2,}\s*testo[^\n]*-{2,}\s*\n+/i, "").trimStart();
 }
 
 export async function llmGeneratorNode(

@@ -33,7 +33,7 @@ export async function channelAnalyzerNode(
   }
 
   const model = new ChatOpenAI({
-    modelName: "gpt-4o",
+    modelName: process.env.OPENAI_MODEL ?? "gpt-4o",
     temperature: 0.3,
   });
 

@@ -27,3 +27,4 @@ Il tuo compito è generare il TESTO di un nuovo post che promuova la SCHEDINA SP
 ## Output
 
 Genera SOLO il testo del post, pronto per essere pubblicato. Nessun commento o spiegazione aggiuntiva.
+NON includere intestazioni, delimitatori o etichette come "--- Testo ---", "-- Testo del post --" o simili. Il tuo output deve iniziare DIRETTAMENTE con il contenuto del post (es. emoji, titolo).

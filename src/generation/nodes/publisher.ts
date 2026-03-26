@@ -28,18 +28,17 @@ export async function publisherNode(
     const fullText = generatedPost.text;
     const MAX_CAPTION = 1024;
 
-    // Send image with caption (truncated if needed)
-    const caption = fullText.length <= MAX_CAPTION
-      ? fullText
-      : fullText.slice(0, MAX_CAPTION - 3) + "...";
-
-    await client.sendFile(peer, {
-      file: new CustomFile("post.png", imageBuffer.length, "", imageBuffer),
-      caption,
-    });
-
-    // If text was truncated, send the full text as a follow-up message
-    if (fullText.length > MAX_CAPTION) {
+    if (fullText.length <= MAX_CAPTION) {
+      // Text fits in caption — single message with image + text
+      await client.sendFile(peer, {
+        file: new CustomFile("post.png", imageBuffer.length, "", imageBuffer),
+        caption: fullText,
+      });
+    } else {
+      // Text too long for caption — image first, then full text as separate message
+      await client.sendFile(peer, {
+        file: new CustomFile("post.png", imageBuffer.length, "", imageBuffer),
+      });
       await client.sendMessage(peer, { message: fullText });
     }
 
