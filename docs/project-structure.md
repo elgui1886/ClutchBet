@@ -1,37 +1,51 @@
 # Project Structure
 
 ```
-agentic-workflow/
+ClutchBet/
 ├── src/
-│   ├── nodes/
-│   │   ├── scraper.ts          # Telegram scraper + LLM filter node
-│   │   ├── llm-generator.ts    # Bet analysis + optimization + image render + caption node
-│   │   └── publisher.ts        # Publish generated post to Telegram channel
-│   ├── templates/
-│   │   └── bet-slip.html       # HTML/CSS template for betting slip image rendering
-│   ├── graph.ts                # LangGraph workflow definition
-│   ├── image-renderer.ts       # Puppeteer-based betting slip image renderer
-│   ├── state.ts                # Shared state type flowing between nodes
-│   ├── list-channels.ts        # Utility: list all Telegram channels/groups with IDs
-│   ├── setup-telegram.ts       # One-time auth script (run manually)
-│   └── index.ts                # Entry point (CLI + manual trigger)
+│   ├── index.ts                       # CLI dispatcher
+│   ├── list-channels.ts               # Utility: list Telegram channels
+│   ├── setup-telegram.ts              # One-time Telegram auth
+│   ├── shared/
+│   │   ├── telegram-utils.ts          # resolvePeer(), createTelegramClient()
+│   │   └── llm-utils.ts              # loadPrompt()
+│   ├── generation/
+│   │   ├── state.ts                   # WorkflowState
+│   │   ├── graph.ts                   # scraper → llm_generator → publisher
+│   │   ├── index.ts                   # Entry point (loads channels.yaml)
+│   │   ├── image-renderer.ts          # Puppeteer bet-slip renderer
+│   │   ├── templates/
+│   │   │   └── bet-slip.html          # HTML/CSS bet-slip template
+│   │   └── nodes/
+│   │       ├── scraper.ts             # Telegram scraper + LLM filter
+│   │       ├── llm-generator.ts       # Image analysis + optimization + caption
+│   │       └── publisher.ts           # Publish to Telegram
+│   └── analysis/
+│       ├── state.ts                   # AnalysisState
+│       ├── graph.ts                   # history_scraper → channel_analyzer → report_writer
+│       ├── index.ts                   # Entry point (loads analysis.yaml)
+│       └── nodes/
+│           ├── history-scraper.ts     # Paginated history scraper
+│           ├── channel-analyzer.ts    # GPT-4o chunked analysis
+│           └── report-writer.ts       # Save MD report
 ├── config/
-│   └── channels.yaml           # Telegram channels + topic + publish channel
+│   ├── channels.yaml                  # Generation: topic, channels, publish target
+│   └── analysis.yaml                  # Analysis: channel, months
 ├── prompts/
-│   ├── telegram-filter.md      # LLM filter: Italian football + active event? (with {today_date})
-│   ├── image-analysis.md       # LLM: extract bets from betting slip images via GPT-4o vision
-│   ├── bet-optimizer.md        # LLM: generate optimized bet slip JSON (totalOdd = product, cap ≤ 35)
-│   └── post-generator.md       # LLM: write caption with ALL bet details (text must be self-sufficient)
-├── samples/                    # Reference samples (Release 1, kept for reference)
-│   ├── sample1/
-│   ├── sample2/
-│   ├── sample3/
-│   └── sample4/
-├── temp/                       # Telegram downloaded images — auto-created, gitignored
-├── output/                     # Generated posts — auto-created, gitignored
+│   ├── telegram-filter.md             # Filter: Italian football + active event?
+│   ├── image-analysis.md              # Extract bets from slip images
+│   ├── bet-optimizer.md               # Generate optimized bet slip JSON
+│   ├── post-generator.md              # Write caption for generated slip
+│   ├── channel-analysis-chunk.md      # Analyze a batch of channel posts
+│   └── channel-analysis-final.md      # Meta-analysis → final report
+├── samples/                           # Reference samples (Release 1)
+│   ├── sample1/ ... sample4/
+├── temp/                              # Downloaded images (gitignored)
+├── output/                            # Generated outputs (gitignored)
+│   └── analysis/                      # Channel analysis reports
 ├── docs/
-│   ├── project-definition.md
 │   ├── architecture.md
+│   ├── project-definition.md
 │   └── project-structure.md
 ├── .env
 ├── .env.example
@@ -40,173 +54,204 @@ agentic-workflow/
 └── package.json
 ```
 
-## Source Code (`src/`)
+## Shared Code (`src/shared/`)
+
+### `telegram-utils.ts`
+
+Shared Telegram infrastructure used by both workflows:
+
+- `resolvePeer(channel)` — resolves a channel identifier (Web URL, t.me link, @username, numeric ID) into a GramJS peer
+- `createTelegramClient()` — creates and connects a GramJS `TelegramClient` using env vars (`TELEGRAM_API_ID`, `TELEGRAM_API_HASH`, `TELEGRAM_SESSION`). Suppresses the GramJS update loop to avoid TIMEOUT errors
+
+### `llm-utils.ts`
+
+- `loadPrompt(filePath)` — reads a prompt template from disk
+
+## CLI Dispatcher (`src/index.ts`)
+
+Routes to the correct workflow based on `process.argv[2]`:
+
+```bash
+npm start -- generation    # or: npm run generation
+npm start -- analysis      # or: npm run analysis
+```
+
+Dynamically imports `./generation/index.js` or `./analysis/index.js` and calls `main()`.
+
+## Generation Workflow (`src/generation/`)
 
 ### `state.ts`
 
-Defines the shared **LangGraph state** and TypeScript interfaces:
+Defines the LangGraph state and interfaces:
 
-- `SamplePost` — a single input post: `images: string[]` (file paths) + `text: string`
+- `SamplePost` — input post: `images: string[]` (file paths) + `text: string`
 - `GeneratedPost` — output: `imageBase64: string` (PNG) + `text: string` (caption)
-- `WorkflowState` — the LangGraph annotation root with `telegramChannels`, `publishChannel`, `inputPosts`, `topic`, `generatedPost`, `publishResult`
+- `WorkflowState` — LangGraph `Annotation.Root` with `telegramChannels`, `publishChannel`, `inputPosts`, `topic`, `generatedPost`, `publishResult`
 
 ### `graph.ts`
 
-Builds and compiles the **LangGraph workflow**:
+Builds the LangGraph workflow:
 
 ```
-[START] → [scraper] → (inputPosts empty?) → [END]
-                ↓
-          (posts found)
-                ↓
-        [llm_generator] → [publisher] → [END]
-```
-
-The conditional edge after `scraper` checks `state.inputPosts.length`. If zero relevant posts were found on Telegram, the workflow exits cleanly. Otherwise, proceeds to LLM generation and then publishing.
-
-### `image-renderer.ts`
-
-Generates betting slip images using **Puppeteer** (headless Chrome). Takes a `BetSlip` JSON (title, bets, totalOdd) and renders the HTML/CSS template (`src/templates/bet-slip.html`) to a PNG screenshot. The template features a dark gradient background with purple/green accent glow effects, an SVG cinghiale (boar) logo, glassmorphism bet cards, and neon-style quota badges.
-
-Exports:
-- `BetSlip` interface: `{ title, bets: [{ homeTeam, awayTeam, betType, odd }], totalOdd }`
-- `renderBetSlipImage(slip: BetSlip): Promise<Buffer>` — async, returns PNG buffer
-
-### `setup-telegram.ts`
-
-One-time CLI script to authenticate with Telegram and obtain a persistent session string. Run once:
-```bash
-npx tsx src/setup-telegram.ts
-```
-Enter phone number + OTP (and 2FA password if enabled). The printed session string goes into `.env` as `TELEGRAM_SESSION`.
-
-### `list-channels.ts`
-
-Utility script to list all Telegram channels/groups you're a member of, with their names, numeric IDs, and @usernames. Useful for finding channel identifiers to add to `channels.yaml`:
-```bash
-npx tsx src/list-channels.ts
+[START] → [scraper] → (inputPosts empty? → END) → [llm_generator] → [publisher] → [END]
 ```
 
 ### `index.ts`
 
-CLI entry point. Responsible for:
+Entry point. Loads `config/channels.yaml`, invokes the graph, saves generated output (PNG + MD) to `output/`.
 
-1. Loading `topic`, `telegramChannels`, and `publishChannel` from `config/channels.yaml`
-2. Invoking the LangGraph workflow (scraper → conditional → llm_generator → publisher)
-3. Saving generated output (PNG image + MD text) to `output/`
+### `image-renderer.ts`
+
+Puppeteer-based bet-slip image generator. Takes a `BetSlip` JSON and renders `templates/bet-slip.html` to PNG.
+
+Exports:
+- `BetSlip` interface: `{ title, bets: [{ homeTeam, awayTeam, betType, odd }], totalOdd }`
+- `renderBetSlipImage(slip): Promise<Buffer>`
 
 ### `nodes/scraper.ts`
 
-The Telegram scraper node. Two-phase architecture to avoid GramJS TIMEOUT errors:
+Two-phase Telegram scraper:
 
-**Phase 1 — Download (Telegram connected):**
-1. Connects to Telegram via GramJS (using `TELEGRAM_SESSION` from `.env`)
-2. For each channel, fetches the **last 10 messages** that contain a photo
-3. Downloads relevant images to `temp/<timestamp>/`
-4. Disconnects from Telegram
+**Phase 1 — Download** (Telegram connected): fetches last 10 messages with photos per channel, downloads images to `temp/`
+**Phase 2 — Filter** (Telegram disconnected): GPT-4o evaluates each post via `telegram-filter.md` for Italian football relevance + active event
 
-**Phase 2 — Filter (Telegram disconnected):**
-5. For each candidate, calls GPT with `prompts/telegram-filter.md` (with `{today_date}` injected) to check if the post is about **Italian football** and the event is **still active**
-6. Returns `{ inputPosts: SamplePost[] }` — empty array if nothing matched
-
-Supports channel identifiers in 4 formats: Telegram Web URL, t.me link, @username, numeric ID. Uses `Api.PeerChannel` with `big-integer` for numeric IDs.
+Uses `resolvePeer()` and `createTelegramClient()` from `src/shared/telegram-utils.ts`.
 
 ### `nodes/llm-generator.ts`
 
-The LLM generation node. Performs 4 internal steps:
-
-1. **Image analysis** — GPT-4o vision reads betting slip images and extracts matches, bet types, odds
-2. **Bet optimization** — GPT generates an optimized bet slip as structured JSON. `totalOdd` is recalculated in code as the exact product of individual odds. If it exceeds 35, the highest-odd bet is iteratively removed until under the cap
-3. **Image rendering** — Puppeteer renders the HTML/CSS template into a professional PNG image
-4. **Text generation** — GPT writes a caption that includes ALL bet details (teams, bet types, individual odds, total) so the text is self-sufficient without the image
+Four internal steps:
+1. **Image analysis** — GPT-4o vision extracts matches, bet types, odds from slip images
+2. **Bet optimization** — generates optimized bet slip JSON; `totalOdd` recalculated in code (cap ≤ 35)
+3. **Image rendering** — Puppeteer renders HTML template to PNG
+4. **Text generation** — GPT writes caption with all bet details
 
 ### `nodes/publisher.ts`
 
-The Telegram publisher node:
+Publishes generated post to Telegram:
+- Sends PNG + caption via GramJS
+- Handles 1024-char caption limit (truncate + follow-up message)
+- Uses shared Telegram utilities
 
-1. Connects to Telegram via GramJS (same session as scraper)
-2. Resolves the `publishChannel` identifier (supports same 4 formats as scraper)
-3. Sends the generated PNG image with caption to the target channel
-4. If caption exceeds Telegram's 1024-char limit, sends truncated caption on the image + full text as a follow-up message
-5. Returns `{ publishResult: string }` with success/skip/error status
+## Analysis Workflow (`src/analysis/`)
+
+### `state.ts`
+
+LangGraph state for analysis:
+
+- `RawPost` — `{ text: string, date: string, hasImage: boolean }`
+- `AnalysisState` — `Annotation.Root` with `channel`, `timeRangeMonths`, `rawPosts`, `chunks`, `chunkSummaries`, `analysisDocument`
+
+### `graph.ts`
+
+```
+[START] → [history_scraper] → (rawPosts empty? → END) → [channel_analyzer] → [report_writer] → [END]
+```
+
+### `index.ts`
+
+Entry point. Loads `config/analysis.yaml` (single channel + months), invokes the analysis graph.
+
+### `nodes/history-scraper.ts`
+
+Paginated Telegram history scraper:
+- Fetches messages in batches of 100 using `offsetId` pagination
+- Stops when reaching the cutoff date (today − N months)
+- Collects only text + date + hasImage flag (no image downloads)
+- 1.5s pause between batches for rate limiting
+- Sorts posts chronologically (oldest first)
+
+### `nodes/channel-analyzer.ts`
+
+Two-level GPT-4o analysis:
+1. **Chunking**: splits posts into batches of ~50
+2. **Batch analysis**: each chunk analyzed via `prompts/channel-analysis-chunk.md` → partial summaries (themes, tone, patterns, format, engagement, frequency)
+3. **Meta-analysis**: all summaries synthesized via `prompts/channel-analysis-final.md` → final structured Markdown document
+
+### `nodes/report-writer.ts`
+
+Saves the analysis document to `output/analysis/<channel-name>.md`. Sanitizes channel identifiers to filesystem-safe names.
 
 ## Configuration (`config/`)
 
-### `channels.yaml`
+### `channels.yaml` (Generation)
 
-Defines the workflow parameters:
+```yaml
+topic: "Betting Serie A - prossima giornata di campionato"
+telegramChannels:
+  - "https://web.telegram.org/k/#-1259302052"
+  - "@channelname"
+publishChannel: "https://t.me/maremmabet"
+```
 
-- `topic` — the subject for post generation (used by the LLM generator)
-- `telegramChannels` — list of Telegram channel usernames or numeric IDs to scrape (e.g. `@channelname` or `1234567890`)
+### `analysis.yaml` (Analysis)
+
+```yaml
+channel: "@channelname"
+months: 3
+```
 
 ## Prompts (`prompts/`)
 
-### `image-analysis.md`
+### Generation Prompts
+- **`telegram-filter.md`** — evaluates if a post is about Italian football + active event → `{ relevant, reason }`
+- **`image-analysis.md`** — GPT-4o vision extracts structured bet data from slip images
+- **`bet-optimizer.md`** — generates optimized bet slip as JSON
+- **`post-generator.md`** — writes caption with all bet details
 
-Instructs GPT-4o vision to analyze betting slip images and extract structured data: matches, bet types, odds, slip codes.
-
-### `bet-optimizer.md`
-
-Instructs GPT-4o to combine and optimize bets from all analyzed slips into a single new optimized slip, returned as JSON (`BetSlip` format).
-
-### `post-generator.md`
-
-Instructs GPT-4o to write a caption for the generated bet slip, coherent with the actual bets, styled after the sample texts.
-
-### `telegram-filter.md`
-
-Instructs GPT-4o to evaluate a Telegram post text and return a JSON `{ relevant: boolean, reason: string }` indicating whether the post is about Italian football (Serie A, Serie B, Coppa Italia, Nazionale) and whether the referenced event is still active (not concluded).
+### Analysis Prompts
+- **`channel-analysis-chunk.md`** — analyzes a batch of posts for themes, tone, format, patterns, engagement, frequency
+- **`channel-analysis-final.md`** — synthesizes chunk summaries into a comprehensive Markdown report with sections: Overview, Tone of Voice, Piano Editoriale, Pattern Ricorrenti, Frequenza di Pubblicazione, Stile dei Contenuti, Punti di Forza/Debolezze, Raccomandazioni
 
 ## Samples (`samples/`)
 
-Hardcoded sample posts used in Release 1, kept for reference. Each subfolder represents one Telegram post and contains:
-
-- One or more **images** (`.jpeg`, `.png`) — screenshots of betting slips
-- One **text file** (`.txt`) — the promotional text accompanying the image
-
-## Temp (`temp/`)
-
-Auto-created directory where the scraper node saves images downloaded from Telegram during a workflow run. Organized in timestamped subfolders (`temp/<ISO-timestamp>/`). Listed in `.gitignore`.
+Hardcoded sample posts from Release 1, kept for reference. Each subfolder contains images + text of a Telegram betting post.
 
 ## Output (`output/`)
 
-Auto-created directory where generated posts are saved as timestamped files:
+Auto-created directory for generated outputs:
 
-- `post-<timestamp>.png` — the rendered betting slip image
-- `post-<timestamp>.md` — the generated caption text
+- `output/post-<timestamp>.png` — rendered betting slip (generation workflow)
+- `output/post-<timestamp>.md` — generated caption (generation workflow)
+- `output/analysis/<channel-name>.md` — channel analysis report (analysis workflow)
 
 Listed in `.gitignore`.
 
-## Environment (`.env`)
+## Temp (`temp/`)
 
-Stores sensitive configuration. Use `.env.example` as template:
+Auto-created directory where the generation scraper saves images downloaded from Telegram. Organized in timestamped subfolders. Listed in `.gitignore`.
+
+## Environment (`.env`)
 
 | Variable | Required | Description |
 |---|---|---|
 | `OPENAI_API_KEY` | Yes | GitHub PAT (or OpenAI key) |
-| `OPENAI_BASE_URL` | Yes | API endpoint (GitHub Models: `https://models.inference.ai.azure.com`) |
-| `OPENAI_MODEL` | No | Model to use (defaults to `gpt-4o`) |
+| `OPENAI_BASE_URL` | Yes | API endpoint (e.g. `https://models.inference.ai.azure.com`) |
+| `OPENAI_MODEL` | No | Model name (defaults to `gpt-4o`) |
 | `TELEGRAM_API_ID` | Yes | Numeric app ID from [my.telegram.org](https://my.telegram.org) |
 | `TELEGRAM_API_HASH` | Yes | App hash from [my.telegram.org](https://my.telegram.org) |
-| `TELEGRAM_SESSION` | Yes | Session string generated by `npx tsx src/setup-telegram.ts` |
+| `TELEGRAM_SESSION` | Yes | Session string from `npx tsx src/setup-telegram.ts` |
 
 ## Running the Project
 
 ```bash
 # 1. Copy and configure environment
 cp .env.example .env
-# Edit .env with your OpenAI API key, TELEGRAM_API_ID, TELEGRAM_API_HASH
+# Edit .env with your API keys
 
 # 2. Install dependencies
 npm install
 
 # 3. Authenticate with Telegram (one-time only)
 npx tsx src/setup-telegram.ts
-# Follow the prompts, then copy TELEGRAM_SESSION into .env
 
-# 4. Configure Telegram channels in config/channels.yaml
-# Add your channel usernames under telegramChannels:
+# 4. Run the generation workflow
+npm run generation
+# or: npm start -- generation
 
-# 5. Run the workflow
-npm start
+# 5. Run the analysis workflow (edit config/analysis.yaml first)
+npm run analysis
+# or: npm start -- analysis
+
+# 6. Utility: list your Telegram channels
+npx tsx src/list-channels.ts
 ```

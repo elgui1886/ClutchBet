@@ -2,11 +2,19 @@
 
 ## Project Overview
 
-An automated workflow that:
+The project contains **two independent LangGraph workflows** within a single codebase:
 
+### Generation Workflow (`npm run generation`)
+An automated workflow that:
 1. **Scrapes** Telegram channels (public and private) for the latest posts related to a configurable topic
 2. **Generates** a new optimized betting slip (image + caption) via LLM, built in similarity to the collected posts
 3. **Publishes** the generated post to a configured Telegram channel
+
+### Analysis Workflow (`npm run analysis`)
+A one-off analysis tool that:
+1. **Scrapes** the full history of a single Telegram channel (configurable time range, e.g. 3–4 months)
+2. **Analyzes** the posts via GPT-4o using a chunked approach (batch analysis → meta-analysis)
+3. **Produces** a Markdown document with tone of voice, editorial plan, recurring patterns, publishing frequency, and content style
 
 ## Architecture Decision
 
@@ -48,35 +56,54 @@ An automated workflow that:
 ## Project Structure
 
 ```
-agentic-workflow/
+ClutchBet/
 ├── src/
-│   ├── nodes/
-│   │   ├── scraper.ts          # Node: fetch + LLM-filter posts from Telegram via GramJS
-│   │   ├── llm-generator.ts    # Node: image analysis + bet optimization + image render + caption
-│   │   └── publisher.ts        # Node: publish generated post to Telegram channel
-│   ├── templates/
-│   │   └── bet-slip.html       # HTML/CSS template for betting slip image rendering
-│   ├── graph.ts                # LangGraph workflow definition (scraper → llm_generator → publisher)
-│   ├── state.ts                # Shared state type flowing between nodes
-│   ├── image-renderer.ts       # Puppeteer-based betting slip image renderer
-│   ├── list-channels.ts        # Utility: list all Telegram channels/groups with IDs
-│   ├── setup-telegram.ts       # One-time CLI script to obtain Telegram session string
-│   └── index.ts                # Entry point (CLI + manual trigger)
+│   ├── index.ts                       # CLI dispatcher: routes to generation or analysis workflow
+│   ├── list-channels.ts               # Utility: list Telegram channels/groups with IDs
+│   ├── setup-telegram.ts              # One-time: obtain Telegram session string
+│   ├── shared/
+│   │   ├── telegram-utils.ts          # Shared: resolvePeer(), createTelegramClient()
+│   │   └── llm-utils.ts              # Shared: loadPrompt()
+│   ├── generation/
+│   │   ├── state.ts                   # Generation workflow state (WorkflowState)
+│   │   ├── graph.ts                   # Generation graph: scraper → llm_generator → publisher
+│   │   ├── index.ts                   # Generation entry point (loads channels.yaml)
+│   │   ├── image-renderer.ts          # Puppeteer bet-slip renderer
+│   │   ├── templates/
+│   │   │   └── bet-slip.html          # HTML/CSS template for betting slip
+│   │   └── nodes/
+│   │       ├── scraper.ts             # Telegram scraper + LLM filter
+│   │       ├── llm-generator.ts       # Image analysis + bet optimization + caption
+│   │       └── publisher.ts           # Publish to Telegram channel
+│   └── analysis/
+│       ├── state.ts                   # Analysis workflow state (AnalysisState)
+│       ├── graph.ts                   # Analysis graph: history_scraper → channel_analyzer → report_writer
+│       ├── index.ts                   # Analysis entry point (loads analysis.yaml)
+│       └── nodes/
+│           ├── history-scraper.ts     # Paginated Telegram history scraper
+│           ├── channel-analyzer.ts    # GPT-4o chunked analysis (2-level)
+│           └── report-writer.ts       # Save MD to output/analysis/
 ├── config/
-│   └── channels.yaml           # Telegram channel list + topic + publish channel
+│   ├── channels.yaml                  # Generation config: topic, channels, publish target
+│   └── analysis.yaml                  # Analysis config: channel, months
 ├── prompts/
-│   ├── telegram-filter.md      # LLM prompt: is this post about active Italian football? (uses {today_date})
-│   ├── image-analysis.md       # LLM prompt: extract bets from betting slip images via vision
-│   ├── bet-optimizer.md        # LLM prompt: generate optimized bet slip as JSON (totalOdd = product, cap 35)
-│   └── post-generator.md       # LLM prompt: write full-detail caption for generated slip
-├── temp/                       # Telegram images downloaded at runtime (gitignored)
-├── output/                     # Generated posts saved here (gitignored)
+│   ├── telegram-filter.md             # LLM: is this post about active Italian football?
+│   ├── image-analysis.md              # LLM: extract bets from betting slip images
+│   ├── bet-optimizer.md               # LLM: generate optimized bet slip JSON
+│   ├── post-generator.md              # LLM: write caption for generated slip
+│   ├── channel-analysis-chunk.md      # LLM: analyze a batch of channel posts
+│   └── channel-analysis-final.md      # LLM: meta-analysis → final channel report
+├── output/                            # Generated outputs (gitignored)
+│   └── analysis/                      # Channel analysis reports (*.md)
+├── temp/                              # Downloaded images at runtime (gitignored)
 ├── package.json
 ├── tsconfig.json
-└── .env                        # API keys (Telegram, OpenAI/GitHub Models)
+└── .env                               # API keys (Telegram, OpenAI/GitHub Models)
 ```
 
-## LangGraph Workflow
+## LangGraph Workflows
+
+### Generation Workflow
 
 ```
 [START] → [scraper] → (inputPosts empty?) → [END]
@@ -84,6 +111,16 @@ agentic-workflow/
           (posts found)
                 ↓
         [llm_generator] → [publisher] → [END]
+```
+
+### Analysis Workflow
+
+```
+[START] → [history_scraper] → (rawPosts empty?) → [END]
+                  ↓
+            (posts found)
+                  ↓
+         [channel_analyzer] → [report_writer] → [END]
 ```
 
 Each node is a TypeScript async function that:
@@ -140,24 +177,40 @@ Only posts that pass both criteria are included in `inputPosts`. If none pass, t
 - With 5-10 channels and 1 daily execution, rate limits are not a concern
 - Telegram's Client API allows this usage as long as it's not massive/abusive
 
+### Channel Analysis (Chunked Approach)
+
+The analysis workflow handles potentially large volumes of posts (3–4 months of history) by using a **two-level chunking strategy**:
+
+1. **Batch analysis**: posts are split into chunks of ~50. Each chunk is analyzed by GPT-4o using `prompts/channel-analysis-chunk.md`, producing a partial summary
+2. **Meta-analysis**: all chunk summaries are fed to GPT-4o using `prompts/channel-analysis-final.md`, which synthesizes a comprehensive Markdown document
+
+This approach keeps each LLM call within context window limits while still producing a coherent, holistic analysis.
+
 ## Execution Model
 
-- **Trigger**: Manual via CLI (primary), scheduled via cron (future)
+### Generation Workflow
+- **Trigger**: `npm run generation` (CLI), scheduled via cron (future)
 - **Frequency**: Once per day
-- **Volume**: 5-10 Telegram channels per execution
-- **Output (MVP)**: Generated post saved to markdown file for developer review
-- **Output (Future)**: Published to Google Sheets, then Instagram
+- **Volume**: 5–10 Telegram channels per execution
+- **Output**: Generated post (PNG + MD) saved to `output/`, published to Telegram
+
+### Analysis Workflow
+- **Trigger**: `npm run analysis` (CLI) — one-off tool
+- **Frequency**: Once per channel (run on demand)
+- **Volume**: 1 channel, 3–4 months of history
+- **Output**: Channel analysis document saved to `output/analysis/<channel-name>.md`
+- **Config**: Edit `config/analysis.yaml` before running
 
 ## MVP Roadmap
 
-### Release 1 — LLM Node
+### Release 1 — LLM Node (Generation)
+Posts hardcoded in sample folders. LLM agent generates a new post in similarity. Output saved to `output/`.
 
-Posts are hardcoded in 4-5 text files. Create the LLM agent/prompt that takes these posts as input and generates a new post in similarity. Output saved to a markdown file.
+### Release 2 ✅ — Scraper Node (Generation)
+Replace hardcoded posts with a Telegram scraper. Given N channels and a topic, fetch and filter relevant posts.
 
-### Release 2 — Scraper Node
+### Release 3 ✅ — Publisher Node (Generation)
+Generated post published to a configured Telegram channel via GramJS.
 
-Replace hardcoded posts with a Telegram scraper node. Given N channels and a topic, fetch relevant posts and pass them to the LLM node from Release 1.
-
-### Release 3 — Publisher Node
-
-The generated post is published to a predefined Instagram profile or, alternatively, to a cloud spreadsheet (Google Sheets).
+### Release 4 ✅ — Channel Analysis Workflow
+New one-off workflow: scrape a channel's history, analyze with GPT-4o (chunked), produce a Markdown analysis document.

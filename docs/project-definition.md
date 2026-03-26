@@ -1,51 +1,45 @@
 ## Progetto
 
-Il progetto prevede di creare workflow che performi questi step:
-- scraping su telegram tra una lista di profili configurabili dell'ultimo post pubblicato relativo ad un tema pre-stabilito
-Esempio: su questi canali, cerca l'ultimo post che parla di calcio, o che parla di basket;
+Il progetto contiene **due workflow LangGraph** all'interno di una singola codebase:
 
-- una volta collezionati n post, questi vengono dati in pasto ad un LLM con un prompt preciso, e l'agente sputa fuori un altro post costruito in similitudine ai post che ha ricevuto
-Esempio: collezioni n posti di betting sulla decima giornata di campionato italiano, tiro fuori un post di betting sulla decima giornata di campionato italiano, costruito sulla base dei post visti
+### Workflow 1: Generation
+Workflow automatizzato che:
+- Fa scraping su Telegram tra una lista di canali configurabili degli ultimi post pubblicati relativi a un tema pre-stabilito
+- Filtra i post per attinenza (calcio italiano, eventi attivi) tramite GPT-4o
+- I post filtrati vengono dati in pasto a un LLM che genera un nuovo post (immagine + testo) costruito in similitudine
+- Il post generato viene pubblicato su un canale Telegram dedicato
 
-- il post generato, viene poi pubblicato su un profilo instagram dedicato.
+### Workflow 2: Analysis
+Tool one-off per l'analisi di un singolo canale Telegram:
+- Legge lo storico di un canale su un arco temporale configurabile (es. 3-4 mesi)
+- Analizza i post tramite GPT-4o con strategia a chunk (batch analysis → meta-analysis)
+- Produce un documento Markdown con: tone of voice, piano editoriale, pattern ricorrenti, frequenza di pubblicazione, stile dei contenuti
 
 ## Fasi del progetto
 
 ### Step 1: Definizione architettura
 
 Capire anzitutto e in modo chiaro la migliore architettura per realizzare il desiderata.
-Alcuni opzioni possibili potrebbero essere:
-- utilizzo di una skill che definisca il workflow (nodi) del processo, e orchestri ad alto livello il processo
-- utilizzo di LangChain o LangGraph, definendo nodi, workflow, ecc ecc
-- utilizzo di N8N
-- altre ipotesi
+Architettura scelta: **TypeScript + LangGraph.js** (vedi `architecture.md` per i dettagli).
 
-Si chiede quindi inizalmente di discutere delle possibili architetture, capire quale potrebbe essere la migliore per ottenere il risultato richiesto
+### Step 2: MVP — Generation Workflow
 
-### Step 2: MVP
+1. ✅ **[COMPLETATA]** — Definizione nodo LLM: post hardcodati in N cartelle (una per sample). Ogni cartella contiene immagini + file di testo. L'Agente:
+   - Analizza le immagini delle schedine tramite vision (GPT-4o)
+   - Genera una nuova schedina ottimizzata (immagine)
+   - Genera un testo accattivante
 
-Una volta definita l'architettura, l'obbiettivo è creare non un prodotto finito inizialmente ma un MVP.
-L'MVP passa per diverse release incrementali, quali:
+2. ✅ **[COMPLETATA]** — Scraper node: GramJS scraping + GPT-4o filter via `telegram-filter.md`. Solo post su calcio italiano + eventi attivi passano il filtro.
 
-1. Definizione nodo LLM: i post vengono hardcodati in N cartelle (una per sample). Ogni cartella contiene:
-   - **1 o più immagini** (screenshot di schedine scommesse con partite, quote, marcatori, ecc.)
-   - **1 file di testo** (testo promozionale/accattivante che accompagna l'immagine nel post Telegram)
-   
-   L'obiettivo è creare un Agente/Prompt che, dati questi post multimediali:
-   - **Analizzi le immagini** delle schedine tramite vision (GPT-4o) per estrarre le scommesse proposte
-   - **Generi in uscita una nuova schedina ottimizzata** (immagine) combinando e ottimizzando le scommesse delle schedine in ingresso
-   - **Generi un testo accattivante** in similitudine con i testi ricevuti in ingresso, che invoglia a giocare
-   
-   Il post generato (immagine + testo) viene salvato in una cartella output per essere rivisto dal developer.
+3. ✅ **[COMPLETATA]** — Publisher node: pubblica PNG + caption su Telegram. Gestisce il limite 1024 caratteri con messaggio di follow-up.
 
-2. ✅ **[COMPLETATA]** I post non vengono più hardcodati. È stato definito un nodo `scraper` che, dati N canali Telegram configurati in `channels.yaml`, preleva gli ultimi 5 post per canale (immagine + testo) tramite GramJS (Telegram Client API). Ogni post viene filtrato da GPT-4o tramite un prompt dedicato (`telegram-filter.md`) che verifica:
-   - se il post riguarda il **calcio italiano** (Serie A, Serie B, Coppa Italia, Nazionale)
-   - se l'evento è ancora **attivo** (non concluso)
-   
-   Solo i post rilevanti vengono passati al nodo LLM. Se nessun post supera il filtro, il workflow si ferma con un log.
+### Step 3: Analysis Workflow
 
-3. ✅ **[COMPLETATA]** Il post generato dalla AI viene pubblicato automaticamente su un canale Telegram configurato (`publishChannel` in `channels.yaml`). Il nodo `publisher`:
-   - Connette a Telegram via GramJS usando la stessa sessione dello scraper
-   - Invia l'immagine generata (PNG) + testo caption al canale target
-   - Se la caption supera i 1024 caratteri (limite Telegram), la tronca sull'immagine e invia il testo completo come messaggio di follow-up
+4. ✅ **[COMPLETATA]** — Ristrutturazione codebase in 3 cartelle: `src/generation/`, `src/analysis/`, `src/shared/`. CLI dispatcher con `npm run generation` e `npm run analysis`.
+
+5. ✅ **[COMPLETATA]** — History scraper: scarica lo storico di un canale con paginazione (100 msg per batch, 1.5s di pausa tra batch). Solo testo + metadata (no immagini).
+
+6. ✅ **[COMPLETATA]** — Channel analyzer: analisi a chunk con GPT-4o (batch di ~50 post → summary parziali → meta-analisi finale). Produce documento MD strutturato.
+
+7. ✅ **[COMPLETATA]** — Report writer: salva il documento in `output/analysis/<nome-canale>.md`.
    - Se `publishChannel` non è configurato, il passaggio viene saltato con un log
