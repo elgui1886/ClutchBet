@@ -29,6 +29,19 @@ export async function historyScraperNode(
 
   const client = await createTelegramClient();
   const peer = resolvePeer(channel);
+
+  // Fetch channel title
+  let channelTitle = "";
+  try {
+    const entity = await client.getEntity(peer);
+    channelTitle = (entity as any).title ?? "";
+    if (channelTitle) {
+      console.log(`📛 Channel title: ${channelTitle}`);
+    }
+  } catch {
+    // Non-critical — continue without title
+  }
+
   const posts: RawPost[] = [];
 
   let offsetId = 0;
@@ -89,5 +102,5 @@ export async function historyScraperNode(
   posts.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
   console.log(`\n📊 Scraped ${posts.length} text post(s) from ${channel}\n`);
-  return { rawPosts: posts };
+  return { rawPosts: posts, channelTitle };
 }

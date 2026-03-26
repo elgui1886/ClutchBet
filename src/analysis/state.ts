@@ -10,6 +10,8 @@ export interface RawPost {
 export const AnalysisState = Annotation.Root({
   /** Channel identifier (any supported format) */
   channel:         Annotation<string>({ reducer: (_prev, next) => next, default: () => "" }),
+  /** Human-readable channel title (fetched from Telegram) */
+  channelTitle:    Annotation<string>({ reducer: (_prev, next) => next, default: () => "" }),
   /** How many months of history to fetch */
   timeRangeMonths: Annotation<number>({ reducer: (_prev, next) => next, default: () => 3 }),
   /** All posts scraped from the channel */

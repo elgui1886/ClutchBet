@@ -36,8 +36,17 @@ export async function reportWriterNode(
     fs.mkdirSync(outputDir, { recursive: true });
   }
 
-  const channelName = sanitizeChannelName(channel);
-  const outputPath = path.join(outputDir, `${channelName}.md`);
+  const channelId = sanitizeChannelName(channel);
+  const channelTitle = state.channelTitle ?? "";
+  const model = (process.env.OPENAI_MODEL ?? "gpt-4o").replace(/[^a-zA-Z0-9_.-]/g, "");
+  const date = new Date().toISOString().split("T")[0];
+
+  const titleSlug = channelTitle
+    ? channelTitle.replace(/[^a-zA-Z0-9\u00C0-\u024F -]/g, "").trim().replace(/\s+/g, "-").toLowerCase()
+    : "";
+  const namePart = titleSlug || channelId;
+  const fileName = `${namePart}_${model}_${date}.md`;
+  const outputPath = path.join(outputDir, fileName);
 
   fs.writeFileSync(outputPath, analysisDocument, "utf-8");
   console.log(`💾 Analysis saved to: ${outputPath}`);
