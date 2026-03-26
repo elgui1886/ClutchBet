@@ -4,3 +4,10 @@ output/*
 !output/analysis/
 temp/
 .env
+dashboard/dist/
+dashboard/.angular/
+dashboard/node_modules/
+
+# Runtime config (managed via dashboard, not tracked)
+config/
+prompts/
