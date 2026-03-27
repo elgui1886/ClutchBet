@@ -1,6 +1,4 @@
 node_modules/
 dist/
-output/*
-!output/analysis/
 temp/
 .env
