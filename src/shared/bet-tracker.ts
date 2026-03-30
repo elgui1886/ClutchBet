@@ -9,6 +9,7 @@ const LEGACY_JSON = path.join(DATA_DIR, "bets.json");
 /** A single bet selection within a published post */
 export interface TrackedBet {
   id: string;                    // unique: date_formatSlug_index
+  slipId: string;                // groups bets into a schedina: date_formatSlug
   date: string;                  // YYYY-MM-DD
   formatSlug: string;
   formatName: string;
@@ -23,6 +24,17 @@ export interface TrackedBet {
   matchScore?: string;           // e.g. "2-1"
   recapPublished?: boolean;
   resolvedAt?: string;           // ISO timestamp
+}
+
+/** A schedina (bet slip) — groups bets from the same post */
+export interface Schedina {
+  slipId: string;
+  date: string;
+  formatSlug: string;
+  formatName: string;
+  bets: TrackedBet[];
+  totalOdds: number;             // product of all individual odds
+  status: "pending" | "in_corsa" | "vinta" | "bruciata";
 }
 
 export interface BetsStore {
@@ -42,6 +54,7 @@ function getDb(): Database.Database {
   db.exec(`
     CREATE TABLE IF NOT EXISTS bets (
       id             TEXT PRIMARY KEY,
+      slip_id        TEXT NOT NULL,
       date           TEXT NOT NULL,
       format_slug    TEXT NOT NULL,
       format_name    TEXT NOT NULL,
@@ -60,11 +73,20 @@ function getDb(): Database.Database {
     )
   `);
 
+  // Migrate: add slip_id column if missing (existing DBs)
+  const columns = db.pragma("table_info(bets)") as Array<{ name: string }>;
+  if (!columns.some((c) => c.name === "slip_id")) {
+    db.exec("ALTER TABLE bets ADD COLUMN slip_id TEXT NOT NULL DEFAULT ''");
+    // Backfill: slip_id = date + "_" + format_slug
+    db.exec("UPDATE bets SET slip_id = date || '_' || format_slug WHERE slip_id = ''");
+  }
+
   // Create indexes for common queries
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_bets_date ON bets(date);
     CREATE INDEX IF NOT EXISTS idx_bets_result ON bets(result);
     CREATE INDEX IF NOT EXISTS idx_bets_recap ON bets(recap_published);
+    CREATE INDEX IF NOT EXISTS idx_bets_slip ON bets(slip_id);
   `);
 
   return db;
@@ -73,6 +95,7 @@ function getDb(): Database.Database {
 function rowToBet(row: Record<string, unknown>): TrackedBet {
   return {
     id: row.id as string,
+    slipId: row.slip_id as string,
     date: row.date as string,
     formatSlug: row.format_slug as string,
     formatName: row.format_name as string,
@@ -103,14 +126,15 @@ function migrateFromJson(db: Database.Database): void {
   const store = JSON.parse(raw) as BetsStore;
 
   const insert = db.prepare(`
-    INSERT OR IGNORE INTO bets (id, date, format_slug, format_name, post_text, home_team, away_team, league, kickoff, selection, odds, result, match_score, recap_published, resolved_at)
-    VALUES (@id, @date, @formatSlug, @formatName, @postText, @homeTeam, @awayTeam, @league, @kickoff, @selection, @odds, @result, @matchScore, @recapPublished, @resolvedAt)
+    INSERT OR IGNORE INTO bets (id, slip_id, date, format_slug, format_name, post_text, home_team, away_team, league, kickoff, selection, odds, result, match_score, recap_published, resolved_at)
+    VALUES (@id, @slipId, @date, @formatSlug, @formatName, @postText, @homeTeam, @awayTeam, @league, @kickoff, @selection, @odds, @result, @matchScore, @recapPublished, @resolvedAt)
   `);
 
   const migrate = db.transaction((bets: TrackedBet[]) => {
     for (const b of bets) {
       insert.run({
         id: b.id,
+        slipId: b.slipId || `${b.date}_${b.formatSlug}`,
         date: b.date,
         formatSlug: b.formatSlug,
         formatName: b.formatName,
@@ -156,14 +180,15 @@ export function addBets(newBets: TrackedBet[]): void {
   migrateFromJson(db);
 
   const insert = db.prepare(`
-    INSERT OR IGNORE INTO bets (id, date, format_slug, format_name, post_text, home_team, away_team, league, kickoff, selection, odds)
-    VALUES (@id, @date, @formatSlug, @formatName, @postText, @homeTeam, @awayTeam, @league, @kickoff, @selection, @odds)
+    INSERT OR IGNORE INTO bets (id, slip_id, date, format_slug, format_name, post_text, home_team, away_team, league, kickoff, selection, odds)
+    VALUES (@id, @slipId, @date, @formatSlug, @formatName, @postText, @homeTeam, @awayTeam, @league, @kickoff, @selection, @odds)
   `);
 
   const insertMany = db.transaction((bets: TrackedBet[]) => {
     for (const b of bets) {
       insert.run({
         id: b.id,
+        slipId: b.slipId,
         date: b.date,
         formatSlug: b.formatSlug,
         formatName: b.formatName,
@@ -343,4 +368,93 @@ export function getStatsForPeriod(startDate: string, endDate: string): {
   }
 
   return { total: bets.length, won, lost, voided, pending, roi, profitUnits, avgOdds, byFormat, bySelection };
+}
+
+// ── Schedina (bet slip) functions ────────────────────────────
+
+/**
+ * Compute the status of a schedina from its bets:
+ * - "pending"   = no bets resolved yet
+ * - "in_corsa"  = some bets won, some still pending, none lost
+ * - "vinta"     = all bets resolved and all won
+ * - "bruciata"  = at least one bet lost
+ */
+function computeSchedina(slipId: string, bets: TrackedBet[]): Schedina {
+  const first = bets[0];
+  const totalOdds = bets.reduce((acc, b) => acc * b.odds, 1);
+
+  const won = bets.filter((b) => b.result === "won").length;
+  const lost = bets.filter((b) => b.result === "lost").length;
+  const pending = bets.filter((b) => !b.result).length;
+
+  let status: Schedina["status"];
+  if (lost > 0) {
+    status = "bruciata";
+  } else if (pending === bets.length) {
+    status = "pending";
+  } else if (pending === 0 && won === bets.length) {
+    status = "vinta";
+  } else {
+    status = "in_corsa";
+  }
+
+  return {
+    slipId,
+    date: first.date,
+    formatSlug: first.formatSlug,
+    formatName: first.formatName,
+    bets,
+    totalOdds: Math.round(totalOdds * 100) / 100,
+    status,
+  };
+}
+
+/**
+ * Get all active schedine (not fully resolved or recently resolved).
+ * Groups bets by slip_id and computes each schedina's status.
+ */
+export function getActiveSchedine(): Schedina[] {
+  const db = getDb();
+  migrateFromJson(db);
+
+  // Get all slips that have at least one pending bet OR were resolved today
+  const today = new Date().toISOString().split("T")[0];
+  const rows = db
+    .prepare(`
+      SELECT * FROM bets WHERE slip_id IN (
+        SELECT DISTINCT slip_id FROM bets
+        WHERE result IS NULL
+           OR (resolved_at IS NOT NULL AND date(resolved_at) = ?)
+      )
+      ORDER BY slip_id, kickoff
+    `)
+    .all(today) as Array<Record<string, unknown>>;
+  db.close();
+
+  const bets = rows.map(rowToBet);
+  return groupIntoSchedine(bets);
+}
+
+/**
+ * Get all schedine for a given date.
+ */
+export function getSchedineForDate(date: string): Schedina[] {
+  const db = getDb();
+  migrateFromJson(db);
+  const rows = db
+    .prepare("SELECT * FROM bets WHERE date = ? ORDER BY slip_id, kickoff")
+    .all(date) as Array<Record<string, unknown>>;
+  db.close();
+
+  return groupIntoSchedine(rows.map(rowToBet));
+}
+
+function groupIntoSchedine(bets: TrackedBet[]): Schedina[] {
+  const map = new Map<string, TrackedBet[]>();
+  for (const b of bets) {
+    const group = map.get(b.slipId) ?? [];
+    group.push(b);
+    map.set(b.slipId, group);
+  }
+  return Array.from(map.entries()).map(([slipId, group]) => computeSchedina(slipId, group));
 }

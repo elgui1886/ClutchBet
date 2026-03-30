@@ -125,9 +125,11 @@ async function waitUntil(timeStr: string, formatName: string): Promise<void> {
  */
 function trackPublishedBets(item: ContentItem): void {
   const today = new Date().toISOString().split("T")[0];
+  const slipId = `${today}_${item.formatSlug}`;
 
   const tracked: TrackedBet[] = (item.bets ?? []).map((bet, i) => ({
     id: `${today}_${item.formatSlug}_${i}`,
+    slipId,
     date: today,
     formatSlug: item.formatSlug,
     formatName: item.formatName,

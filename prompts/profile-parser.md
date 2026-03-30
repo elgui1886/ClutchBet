@@ -96,7 +96,7 @@ losses:
 2. **type** deve essere: `regular` (format fissi settimanali) o `special` (format occasionali)
 3. **requires_data** può contenere: `fixtures`, `odds`, `team_stats`, `referee_stats`, `player_cards`, `tracked_bets`. Usa lista vuota `[]` per format che non richiedono dati sportivi (es. contenuti educativi)
 4. **slug** deve essere kebab-case derivato dal nome del format
-5. **publish_time** deve essere in formato HH:MM (24h). Deducilo dalla frequenza e dal contesto del profilo: format mattutini (pillole educative) → "10:00", format pre-match → "14:00", format serali (recap) → "22:00". Se il profilo non specifica un orario, assegna un orario ragionevole
+5. **publish_time** deve essere in formato HH:MM (24h). Deducilo dalla frequenza e dal contesto del profilo: format mattutini (pillole educative) → "10:00", format pre-match → "14:00", format serali (recap) → "22:00". Se il profilo non specifica un orario, assegna un orario ragionevole. **IMPORTANTE: ogni format DEVE avere un publish_time DIVERSO dagli altri. Non assegnare mai la stessa ora a due format. Distanzia gli orari di almeno 30 minuti.**
 5. **template** deve preservare la struttura esatta del post come definita nel profilo originale, usando placeholder tra parentesi graffe per i dati variabili
 6. Estrai TUTTE le frasi vietate e gli esempi corretti dalla sezione tone of voice
 7. Estrai TUTTI i format, sia regolari che speciali

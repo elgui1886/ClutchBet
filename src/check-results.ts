@@ -10,13 +10,15 @@ import {
   getPendingBets,
   updateBetResult,
   markRecapPublished,
+  getActiveSchedine,
   type TrackedBet,
+  type Schedina,
 } from "./shared/bet-tracker.js";
 import { createTelegramClient, resolvePeer } from "./shared/telegram-utils.js";
 import type { ProfileConfig } from "./content-generator/state.js";
 
 const API_FOOTBALL_BASE = "https://v3.football.api-sports.io";
-const RECAP_PROMPT_PATH = path.resolve("prompts", "bet-recap.md");
+const UPDATE_PROMPT_PATH = path.resolve("prompts", "results-update.md");
 
 interface ContentConfig {
   profile: string;
@@ -44,12 +46,13 @@ async function main() {
 
   console.log(`📋 ${pending.length} pending bet(s):\n`);
   for (const bet of pending) {
-    console.log(`   ${bet.homeTeam} vs ${bet.awayTeam} — ${bet.selection} @ ${bet.odds}`);
+    console.log(`   ${bet.homeTeam} vs ${bet.awayTeam} — ${bet.selection} @ ${bet.odds} [${bet.slipId}]`);
   }
   console.log();
 
   // Fetch match results
-  const results = await fetchResults(pending);
+  const config = loadContentConfig();
+  const results = await fetchResults(pending, config);
 
   // Evaluate each bet
   const resolved: TrackedBet[] = [];
@@ -79,40 +82,57 @@ async function main() {
 
   console.log(`\n📊 ${resolved.length} bet(s) resolved\n`);
 
-  // Generate and publish recap
-  const config = loadContentConfig();
+  // Get schedine status — only for schedine involved in this run
+  const involvedSlipIds = new Set(resolved.map((b) => b.slipId));
+  const allSchedine = getActiveSchedine();
+  const schedine = allSchedine.filter((s) => involvedSlipIds.has(s.slipId));
+
+  console.log("📋 Stato schedine coinvolte:\n");
+  for (const s of schedine) {
+    const type = s.bets.length === 1 ? "singola" : `multipla (${s.bets.length} selezioni)`;
+    const icon = s.status === "vinta" ? "✅" : s.status === "bruciata" ? "❌" : s.status === "in_corsa" ? "🔄" : "⏳";
+    console.log(`   ${icon} ${s.formatName} — ${type} — ${s.status.toUpperCase()} (quota tot: ${s.totalOdds})`);
+    for (const b of s.bets) {
+      const bIcon = b.result === "won" ? "✅" : b.result === "lost" ? "❌" : "⏳";
+      console.log(`      ${bIcon} ${b.homeTeam}-${b.awayTeam}: ${b.selection} @ ${b.odds} ${b.matchScore ? `(${b.matchScore})` : ""}`);
+    }
+  }
+  console.log();
+
+  // Generate update post
   const profile = loadProfile(config.profile);
-
-  const recapText = await generateRecap(profile, resolved);
+  const updateText = await generateUpdatePost(profile, resolved, schedine);
 
   console.log("\n" + "=".repeat(60));
-  console.log("📝 RECAP POST\n");
-  console.log(recapText);
+  console.log("📝 UPDATE POST\n");
+  console.log(updateText);
   console.log("\n" + "=".repeat(60));
 
-  const answer = await askUser("\nPubblicare il recap? (s/n): ");
+  const answer = await askUser("\nPubblicare l'aggiornamento? (s/n): ");
   if (answer.toLowerCase() === "s" || answer.toLowerCase() === "si") {
     if (config.publishChannel) {
-      await publishRecap(recapText, config.publishChannel);
+      await publishPost(updateText, config.publishChannel);
       markRecapPublished(resolved.map((b) => b.id));
-      console.log("✅ Recap pubblicato e bets aggiornate.");
+      console.log("✅ Aggiornamento pubblicato e bets aggiornate.");
     } else {
       console.log("⚠️  No publish channel configured.");
     }
   } else {
-    console.log("⏭️  Recap non pubblicato.");
+    console.log("⏭️  Aggiornamento non pubblicato.");
   }
 
-  // Save recap locally
+  // Save locally
   const outputDir = path.resolve("output", "recaps");
   if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
-  const timestamp = new Date().toISOString().split("T")[0];
-  const recapPath = path.join(outputDir, `recap_${timestamp}.md`);
-  fs.writeFileSync(recapPath, recapText, "utf-8");
-  console.log(`💾 Recap saved to: ${recapPath}`);
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+  const recapPath = path.join(outputDir, `update_${timestamp}.md`);
+  fs.writeFileSync(recapPath, updateText, "utf-8");
+  console.log(`💾 Update saved to: ${recapPath}`);
 }
 
-async function fetchResults(bets: TrackedBet[]): Promise<MatchResult[]> {
+// ── Result fetching ──────────────────────────────────────────
+
+async function fetchResults(bets: TrackedBet[], config: ContentConfig): Promise<MatchResult[]> {
   const apiKey = process.env.FOOTBALL_API_KEY;
 
   if (!apiKey) {
@@ -120,17 +140,18 @@ async function fetchResults(bets: TrackedBet[]): Promise<MatchResult[]> {
     return getMockResults(bets);
   }
 
-  // Get unique dates from pending bets
   const dates = [...new Set(bets.map((b) => b.date))];
+  const leagueId = config.league?.id ?? 135;
+  const season = config.league?.season ?? 2025;
   const allResults: MatchResult[] = [];
 
   for (const date of dates) {
     try {
       const url = new URL(`${API_FOOTBALL_BASE}/fixtures`);
       url.searchParams.set("date", date);
-      url.searchParams.set("status", "FT-AET-PEN"); // finished matches
-      url.searchParams.set("league", "135"); // Serie A
-      url.searchParams.set("season", "2025");
+      url.searchParams.set("status", "FT-AET-PEN");
+      url.searchParams.set("league", String(leagueId));
+      url.searchParams.set("season", String(season));
 
       const response = await fetch(url.toString(), {
         headers: { "x-apisports-key": apiKey },
@@ -166,6 +187,8 @@ async function fetchResults(bets: TrackedBet[]): Promise<MatchResult[]> {
 
   return allResults;
 }
+
+// ── Bet evaluation ───────────────────────────────────────────
 
 function findMatch(bet: TrackedBet, results: MatchResult[]): MatchResult | undefined {
   return results.find(
@@ -231,28 +254,55 @@ function evaluateBet(selection: string, match: MatchResult): "won" | "lost" | "v
     return totalGoals >= min && totalGoals <= max ? "won" : "lost";
   }
 
-  // If we can't evaluate, mark as void
   console.log(`  ⚠️  Cannot evaluate selection "${selection}" — marking as void`);
   return "void";
 }
 
-async function generateRecap(profile: ProfileConfig, bets: TrackedBet[]): Promise<string> {
-  const template = loadPrompt(RECAP_PROMPT_PATH);
+// ── Post generation ──────────────────────────────────────────
+
+async function generateUpdatePost(
+  profile: ProfileConfig,
+  resolved: TrackedBet[],
+  schedine: Schedina[]
+): Promise<string> {
+  const template = loadPrompt(UPDATE_PROMPT_PATH);
 
   const tonePrinciples = profile.tone.principles.map((p, i) => `${i + 1}. ${p}`).join("\n");
   const forbiddenPhrases = profile.tone.forbidden_phrases.map((p) => `- "${p}"`).join("\n");
   const lossPrinciples = profile.losses.principles.map((p, i) => `${i + 1}. ${p}`).join("\n");
 
-  const betsResults = bets
+  // Format newly resolved bets
+  const newlyResolved = resolved
     .map((bet) => {
       const icon = bet.result === "won" ? "✅" : bet.result === "lost" ? "❌" : "⚪";
-      return `${icon} **${bet.homeTeam} vs ${bet.awayTeam}** (${bet.matchScore})\n   Selezione: ${bet.selection} @ ${bet.odds}\n   Risultato: ${bet.result}`;
+      return `${icon} ${bet.homeTeam} vs ${bet.awayTeam} (${bet.matchScore}) — ${bet.selection} @ ${bet.odds} → ${bet.result}`;
+    })
+    .join("\n");
+
+  // Format schedine status
+  const schedineStatus = schedine
+    .map((s) => {
+      const type = s.bets.length === 1 ? "Singola" : `Multipla (${s.bets.length} selezioni, quota totale ${s.totalOdds})`;
+      const statusLabel = {
+        pending: "⏳ In attesa (nessuna partita ancora finita)",
+        in_corsa: "🔄 IN CORSA (finora tutto bene, mancano delle partite)",
+        vinta: "✅ VINTA!",
+        bruciata: "❌ BRUCIATA",
+      }[s.status];
+
+      const betLines = s.bets
+        .map((b) => {
+          if (b.result) {
+            const icon = b.result === "won" ? "✅" : b.result === "lost" ? "❌" : "⚪";
+            return `  ${icon} ${b.homeTeam}-${b.awayTeam} (${b.matchScore}): ${b.selection} → ${b.result}`;
+          }
+          return `  ⏳ ${b.homeTeam}-${b.awayTeam}: ${b.selection} (partita non ancora finita)`;
+        })
+        .join("\n");
+
+      return `${s.formatName} — ${type}\nStato: ${statusLabel}\n${betLines}`;
     })
     .join("\n\n");
-
-  const won = bets.filter((b) => b.result === "won").length;
-  const lost = bets.filter((b) => b.result === "lost").length;
-  const periodStats = `Oggi: ${bets.length} giocate | ${won} ✅ ${lost} ❌`;
 
   const prompt = template
     .replace("{profile_name}", profile.profile.name)
@@ -261,8 +311,8 @@ async function generateRecap(profile: ProfileConfig, bets: TrackedBet[]): Promis
     .replace("{forbidden_phrases}", forbiddenPhrases)
     .replace("{register}", profile.tone.register)
     .replace("{loss_principles}", lossPrinciples)
-    .replace("{bets_results}", betsResults)
-    .replace("{period_stats}", periodStats)
+    .replace("{newly_resolved}", newlyResolved)
+    .replace("{schedine_status}", schedineStatus)
     .replace("{emoji_max}", String(profile.tone.emoji_max));
 
   const model = new ChatOpenAI({
@@ -271,15 +321,15 @@ async function generateRecap(profile: ProfileConfig, bets: TrackedBet[]): Promis
   });
 
   const response = await model.invoke([new HumanMessage(prompt)]);
-  const text =
-    typeof response.content === "string"
-      ? response.content
-      : JSON.stringify(response.content);
-
-  return text.trim();
+  return (typeof response.content === "string"
+    ? response.content
+    : JSON.stringify(response.content)
+  ).trim();
 }
 
-async function publishRecap(text: string, channel: string): Promise<void> {
+// ── Publishing ───────────────────────────────────────────────
+
+async function publishPost(text: string, channel: string): Promise<void> {
   const client = await createTelegramClient();
   try {
     const peer = resolvePeer(channel);
@@ -288,6 +338,8 @@ async function publishRecap(text: string, channel: string): Promise<void> {
     await client.disconnect();
   }
 }
+
+// ── Utilities ────────────────────────────────────────────────
 
 function loadContentConfig(): ContentConfig {
   const configPath = path.resolve("config", "content.yaml");
@@ -313,14 +365,20 @@ function askUser(question: string): Promise<string> {
 
 function getMockResults(bets: TrackedBet[]): MatchResult[] {
   console.log("🔧 Using mock results for development\n");
-  return bets.map((bet) => ({
-    fixtureId: 0,
-    homeTeam: bet.homeTeam,
-    awayTeam: bet.awayTeam,
-    homeGoals: 2,
-    awayGoals: 1,
-    status: "FT",
-  }));
+  const scores: Array<[number, number]> = [
+    [2, 1], [1, 0], [3, 2], [0, 0], [1, 1], [2, 0], [1, 3], [0, 1],
+  ];
+  return bets.map((bet, i) => {
+    const [h, a] = scores[i % scores.length];
+    return {
+      fixtureId: 0,
+      homeTeam: bet.homeTeam,
+      awayTeam: bet.awayTeam,
+      homeGoals: h,
+      awayGoals: a,
+      status: "FT",
+    };
+  });
 }
 
 main().catch((err) => {

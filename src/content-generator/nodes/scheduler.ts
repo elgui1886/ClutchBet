@@ -56,6 +56,23 @@ export async function schedulerNode(
     }
   }
 
+  // Validate: no two formats should have the same publish_time
+  const timeMap = new Map<string, string>();
+  for (const slug of selected) {
+    const format = formats.find((f) => f.slug === slug);
+    if (format?.publish_time) {
+      const existing = timeMap.get(format.publish_time);
+      if (existing) {
+        console.log(`⚠️  Conflitto orario: "${format.name}" e "${existing}" entrambi alle ${format.publish_time}. Spostamento di 15 minuti.`);
+        // Shift by 15 minutes
+        const [h, m] = format.publish_time.split(":").map(Number);
+        const shifted = new Date(2000, 0, 1, h, m + 15);
+        format.publish_time = `${String(shifted.getHours()).padStart(2, "0")}:${String(shifted.getMinutes()).padStart(2, "0")}`;
+      }
+      timeMap.set(format.publish_time, format.name);
+    }
+  }
+
   console.log(`📋 Scheduled formats: ${selected.length > 0 ? selected.join(", ") : "(none)"}`);
 
   return { scheduledFormats: selected };
