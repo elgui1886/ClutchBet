@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-The project contains **two independent LangGraph workflows** within a single codebase:
+The project contains **three LangGraph workflows** plus utility commands within a single codebase:
 
 ### Generation Workflow (`npm run generation`)
 An automated workflow that:
@@ -15,6 +15,25 @@ A one-off analysis tool that:
 1. **Scrapes** the full history of a single Telegram channel (configurable time range, e.g. 3–4 months)
 2. **Analyzes** the posts via GPT-4o using a chunked approach (batch analysis → meta-analysis)
 3. **Produces** a Markdown document with tone of voice, editorial plan, recurring patterns, publishing frequency, and content style
+
+### Content Generator Workflow (`npm run content`)
+An editorial content pipeline that turns a **profile** (editorial line definition) into real, publishable Telegram posts:
+1. **Fetches** real sports data (fixtures, odds) from external APIs (API-Football)
+2. **Schedules** which editorial formats to generate today based on the profile's editorial plan, the day of the week, and available fixtures
+3. **Generates** post content via LLM, strictly following the profile's tone of voice, format templates, and real sports data
+4. **Reviews** generated content with human-in-the-loop approval before publishing
+5. **Publishes** approved posts to a configured Telegram channel
+
+### Bet Results Checker (`npm run check-results`)
+A command that verifies the outcome of published bets:
+1. **Reads** pending (unresolved) bets from the SQLite database (`data/clutchbet.db`)
+2. **Fetches** match results from API-Football for finished matches
+3. **Evaluates** each bet (supports 1X2, Over/Under, Goal/NoGoal, Double Chance, Multigol)
+4. **Generates** a recap post via LLM, following the profile's tone of voice and loss management rules
+5. **Publishes** the recap to Telegram (with human approval)
+
+### Profile Parser (`npm run parse-profile`)
+A one-off utility that converts a human-written Markdown profile (e.g. `output/profiles/il-capitano.md`) into a structured YAML configuration file that the content generator workflow can consume deterministically.
 
 ## Architecture Decision
 
@@ -49,21 +68,26 @@ A one-off analysis tool that:
 | **LLM** | OpenAI SDK (`@langchain/openai`) | GPT-4o / GPT-4o-mini via GitHub Models endpoint for filtering, analysis, optimization, caption generation |
 | **Image Rendering** | Puppeteer (headless Chrome) | Renders HTML/CSS bet-slip template to PNG screenshot |
 | **Publishing** | Telegram channel | Generated post sent directly to a configured Telegram channel |
+| **Sports Data API** | API-Football (api-sports.io) | Real fixtures, odds (1X2, Over/Under, Goal/NoGoal), match results for content generation and bet tracking |
+| **Bet Storage** | better-sqlite3 (SQLite) | Local database for bet tracking, result verification, and performance analytics |
 | **Trigger** | CLI (`tsx`) | Manual execution via `npm start` |
 | **Scheduling (Future)** | node-cron / system cron | Daily automated execution |
-| **Configuration** | YAML + .env | Channels, topics, API keys |
+| **Configuration** | YAML + .env | Channels, topics, profiles, API keys |
 
 ## Project Structure
 
 ```
 ClutchBet/
 ├── src/
-│   ├── index.ts                       # CLI dispatcher: routes to generation or analysis workflow
+│   ├── index.ts                       # CLI dispatcher: routes to generation, analysis, content, check-results
 │   ├── list-channels.ts               # Utility: list Telegram channels/groups with IDs
 │   ├── setup-telegram.ts              # One-time: obtain Telegram session string
+│   ├── parse-profile.ts               # One-off: convert MD profile → YAML config
+│   ├── check-results.ts               # Check bet results + generate recap post
 │   ├── shared/
 │   │   ├── telegram-utils.ts          # Shared: resolvePeer(), createTelegramClient()
-│   │   └── llm-utils.ts              # Shared: loadPrompt()
+│   │   ├── llm-utils.ts              # Shared: loadPrompt()
+│   │   └── bet-tracker.ts            # Shared: bet tracking store (SQLite — data/clutchbet.db)
 │   ├── generation/
 │   │   ├── state.ts                   # Generation workflow state (WorkflowState)
 │   │   ├── graph.ts                   # Generation graph: scraper → llm_generator → publisher
@@ -83,18 +107,38 @@ ClutchBet/
 │           ├── history-scraper.ts     # Paginated Telegram history scraper
 │           ├── channel-analyzer.ts    # GPT-4o chunked analysis (2-level)
 │           └── report-writer.ts       # Save MD to output/analysis/
+│   └── content-generator/
+│       ├── state.ts                   # ContentState (profile, fixtures, odds, content items, bets)
+│       ├── graph.ts                   # scheduler → data_fetcher → content_writer → reviewer → publisher
+│       ├── index.ts                   # Entry point (loads config/content.yaml + profile YAML)
+│       └── nodes/
+│           ├── scheduler.ts           # Decide which formats to generate today
+│           ├── data-fetcher.ts        # Fetch fixtures + odds from API-Football
+│           ├── content-writer.ts      # LLM generates post per format + extracts bet selections
+│           ├── reviewer.ts            # Human-in-the-loop: display + approve/edit/reject
+│           └── publisher.ts           # Publish approved posts to Telegram + save bets to tracker
 ├── config/
 │   ├── channels.yaml                  # Generation config: topic, channels, publish target
-│   └── analysis.yaml                  # Analysis config: channel, months
+│   ├── analysis.yaml                  # Analysis config: channel, months
+│   ├── content.yaml                   # Content generator config: profile, publish channel, league
+│   └── profiles/                      # Parsed YAML profiles (generated by parse-profile)
+│       └── il-capitano.yaml           # Example: parsed from output/profiles/il-capitano.md
 ├── prompts/
 │   ├── telegram-filter.md             # LLM: is this post about active Italian football?
 │   ├── image-analysis.md              # LLM: extract bets from betting slip images
 │   ├── bet-optimizer.md               # LLM: generate optimized bet slip JSON
 │   ├── post-generator.md              # LLM: write caption for generated slip
 │   ├── channel-analysis-chunk.md      # LLM: analyze a batch of channel posts
-│   └── channel-analysis-final.md      # LLM: meta-analysis → final channel report
+│   ├── channel-analysis-final.md      # LLM: meta-analysis → final channel report
+│   ├── profile-parser.md              # LLM: convert MD profile → structured YAML
+│   ├── content-post.md                # LLM: generate editorial post from profile + data
+│   └── bet-recap.md                   # LLM: generate recap post after bet results
+├── data/                              # Runtime data (gitignored)
+│   └── clutchbet.db                   # SQLite database (bet tracking, analytics)
 ├── output/                            # Generated outputs (gitignored)
-│   └── analysis/                      # Channel analysis reports (*.md)
+│   ├── analysis/                      # Channel analysis reports (*.md)
+│   ├── content/                       # Generated content posts (*.md)
+│   └── recaps/                        # Generated recap posts (*.md)
 ├── temp/                              # Downloaded images at runtime (gitignored)
 ├── package.json
 ├── tsconfig.json
@@ -121,6 +165,18 @@ ClutchBet/
             (posts found)
                   ↓
          [channel_analyzer] → [report_writer] → [END]
+```
+
+### Content Generator Workflow
+
+```
+[START] → [scheduler] → (nothing to generate?) → [END]
+                ↓
+          (formats selected)
+                ↓
+         [data_fetcher] → [content_writer] → [reviewer] → (none approved?) → [END]
+                                                              ↓
+                                                        [publisher] → [END]
 ```
 
 Each node is a TypeScript async function that:
@@ -201,6 +257,21 @@ This approach keeps each LLM call within context window limits while still produ
 - **Output**: Channel analysis document saved to `output/analysis/<channel-name>.md`
 - **Config**: Edit `config/analysis.yaml` before running
 
+### Content Generator Workflow
+- **Trigger**: `npm run content` (CLI)
+- **Frequency**: Once per day (morning)
+- **Input**: Parsed YAML profile + real sports data from API-Football
+- **Output**: Generated posts saved to `output/content/`, published to Telegram at scheduled times
+- **Config**: Edit `config/content.yaml` (profile path, publish channel, league)
+- **Human-in-the-loop**: Each generated post must be approved before publishing
+
+### Bet Results Checker
+- **Trigger**: `npm run check-results` (CLI)
+- **Frequency**: After matches finish (evening / end of match day)
+- **Input**: Pending bets from `data/clutchbet.db` + match results from API-Football
+- **Output**: Recap post saved to `output/recaps/`, published to Telegram
+- **Human-in-the-loop**: Recap must be approved before publishing
+
 ## MVP Roadmap
 
 ### Release 1 — LLM Node (Generation)
@@ -214,3 +285,6 @@ Generated post published to a configured Telegram channel via GramJS.
 
 ### Release 4 ✅ — Channel Analysis Workflow
 New one-off workflow: scrape a channel's history, analyze with GPT-4o (chunked), produce a Markdown analysis document.
+
+### Release 5 ✅ — Content Generator Workflow
+Profile-driven content generation: parse MD profile → YAML, schedule editorial formats, fetch real fixtures + odds from API-Football, generate posts with LLM following profile tone, human-in-the-loop review, timed publishing to Telegram, bet tracking (SQLite) with result checking and recap generation.
