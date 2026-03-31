@@ -1,0 +1,228 @@
+profile:
+  name: "Il Capitano"
+  handle: "@ilcapitanoBet"
+  claim: "Non vendiamo sogni. Studiamo il campo."
+  universe:
+    - name: "Lo Spogliatoio"
+      role: "canale principale / community"
+    - name: "La Lavagna"
+      role: "rubrica di analisi tattica e formazione giocate"
+    - name: "Il Cerchio"
+      role: "gruppo VIP"
+    - name: "La Fascia"
+      role: "status dei membri più fedeli / attivi"
+
+tone:
+  principles:
+    - "Diretto ma rispettoso: niente parolacce, niente insulti a giocatori o arbitri. La frustrazione si esprime con ironia, mai con volgarità."
+    - "Competente ma accessibile: spiega il ragionamento dietro ogni giocata senza essere professorale. 'Te lo spiego in 30 secondi'."
+    - "Motivazionale ma onesto: entusiasmo sì, hype illusorio no. Le perdite si commentano con lucidità."
+    - "Inclusivo: 'noi', 'ragazzi', 'squadra'. Mai 'se non mi segui perderai' — piuttosto 'entra, studia con noi, migliora'."
+  forbidden_phrases:
+    - "BOMBA PAZZESCA CI GIOCHIAMO TUTTO"
+    - "GIOCA QUESTA O TE NE PENTIRAI"
+    - "Che schifo, arbitro ladro, calcio italiano di m***a"
+    - "(silenzio — mai spiegare nulla)"
+    - "SEI ANCORA FUORI DAL VIP? Ma cosa aspetti???"
+  example_phrases:
+    - "Giocata ragionata, quota giusta per il rischio"
+    - "Oggi non mi convince nulla, meglio stare fermi"
+    - "Sbagliata. L'analisi era corretta, la variabile X ha pesato. Ci sta."
+    - "Per chi è nuovo: ecco come funziona il multigol"
+    - "Se vuoi approfondire, nel Cerchio facciamo analisi pre-match live"
+  emoji_max: 4
+  register: "Italiano corretto ma colloquiale. Come un amico competente che ti spiega le cose al bar, non come un professore."
+  uppercase_rule: "MAI tutto maiuscolo per intere frasi. Maiuscolo solo per il nome dei format."
+
+formats:
+  - name: "La Lavagna"
+    slug: "la-lavagna"
+    frequency: "weekly_friday_saturday"
+    publish_time: "14:00"
+    type: "regular"
+    description: "Analisi tattica della giornata: 2-3 partite selezionate con ragionamento completo (statistiche, assenze, arbitro, trend). Da qui nascono le giocate del weekend."
+    requires_data:
+      - fixtures
+      - odds
+    template: |
+      Template del post con placeholder:
+      {match} | {league} | ore {time}
+      Selezione: {selection}
+
+  - name: "Giocata del Giorno"
+    slug: "giocata-del-giorno"
+    frequency: "daily_match_day"
+    publish_time: "14:30"
+    type: "regular"
+    description: "Una singola giocata ragionata con spiegazione breve (2-3 righe di motivazione + selezione + quota). Qualità > quantità."
+    requires_data:
+      - fixtures
+      - odds
+    template: |
+      ⚽ GIOCATA DEL GIORNO
+      
+      {match} | {league} | ore {time}
+      
+      📋 Selezione: {selection}
+      📊 Quota: {odds}
+      
+      Ragionamento: {reasoning}
+      
+      ⚠️ Rischio: {risk}
+      💰 Stake consigliato: {stake}
+      
+      #GiocataDelGiorno
+
+  - name: "Cartellino Tattico"
+    slug: "cartellino-tattico"
+    frequency: "2-3x_week"
+    publish_time: "15:00"
+    type: "regular"
+    description: "Analisi su arbitri, diffidati, giocatori ad alto tasso di falli. Dato + ragionamento, non solo 'prendi il giallo di X'."
+    requires_data:
+      - referee_stats
+      - player_cards
+    template: |
+      🟨 CARTELLINO TATTICO
+      
+      {match} | Arbitro: {referee}
+      
+      📊 {referee}: media {avg_cards} cartellini/partita in Serie A
+      👤 {player1}: {cards1} gialli in {matches1} partite, diffidato
+      👤 {player2}: {cards2} gialli in {matches2} partite, gioco fisico
+      
+      Selezione: Almeno 1 cartellino {player1} o {player2}
+      📊 Quota: {odds}
+      
+      #CartelliniTattico
+
+  - name: "Il Fischio Finale"
+    slug: "il-fischio-finale"
+    frequency: "weekly_sunday_evening"
+    publish_time: "22:00"
+    type: "regular"
+    description: "Recap settimanale: giocate proposte, risultati (vinte e perse), % di successo, breve commento. Trasparenza totale."
+    requires_data: []
+    template: |
+      📊 IL FISCHIO FINALE
+      
+      Settimana: {total_bets} giocate | {wins} ✅ {losses} ❌ | {success_rate}%
+      
+      Commento: {comment}
+      
+      #IlFischioFinale
+
+  - name: "Pillola"
+    slug: "pillola"
+    frequency: "2-3x_week"
+    publish_time: "10:00"
+    type: "regular"
+    description: "Micro-contenuto educativo (60-90 parole): come funziona l'over/under, cos'è il value betting, come si legge una quota, gestione bankroll."
+    requires_data: []
+    template: |
+      📚 PILLOLA
+      
+      {content}
+      
+      #Pillola
+
+  - name: "La Grande Occasione"
+    slug: "la-grande-occasione"
+    frequency: "big_match"
+    publish_time: "14:00"
+    type: "special"
+    description: "Multipla ad alta quota (Q.15+) su partite di cartello. Con analisi dettagliata di ogni selezione e avviso esplicito: 'questa è ad alto rischio, gioca solo quello che puoi perdere'."
+    requires_data:
+      - fixtures
+      - odds
+    template: |
+      🚨 LA GRANDE OCCASIONE
+      
+      {match} | {league} | ore {time}
+      
+      📋 Selezione: {selection}
+      📊 Quota: {odds}
+      
+      Attenzione: questa è ad alto rischio, gioca solo quello che puoi perdere.
+      
+      #LaGrandeOccasione
+
+  - name: "Il Derby"
+    slug: "il-derby"
+    frequency: "derby"
+    publish_time: "14:00"
+    type: "special"
+    description: "Contenuto speciale dedicato: storia del confronto, statistiche recenti, pronostico ragionato."
+    requires_data: []
+    template: |
+      ⚔️ IL DERBY
+      
+      {match} | {league} | ore {time}
+      
+      Storia del confronto: {history}
+      Statistiche recenti: {stats}
+      Pronostico: {prediction}
+      
+      #IlDerby
+
+  - name: "Report Mensile"
+    slug: "report-mensile"
+    frequency: "monthly"
+    publish_time: "10:00"
+    type: "special"
+    description: "Report completo: numero giocate, vinte, perse, ROI, format più redditizi. Pubblicato nel canale free."
+    requires_data: []
+    template: |
+      📊 REPORT MENSILE
+      
+      Giocate totali: {total_bets}
+      Vinte: {wins}
+      Perse: {losses}
+      ROI: {roi}%
+      Format più redditizi: {top_formats}
+      
+      #ReportMensile
+
+scheduling:
+  match_day:
+    max_posts: 5
+    formats:
+      - "giocata-del-giorno"
+      - "cartellino-tattico"
+      - "la-lavagna"
+      - "pillola"
+      - "il-fischio-finale"
+  no_match_day:
+    max_posts: 2
+    formats:
+      - "pillola"
+      - "anticipazione prossima giornata"
+  special:
+    - trigger: "sunday_evening"
+      formats:
+        - "il-fischio-finale"
+    - trigger: "friday_saturday"
+      formats:
+        - "la-lavagna"
+    - trigger: "monthly"
+      formats:
+        - "report-mensile"
+
+losses:
+  principles:
+    - "Le perdite si pubblicano sempre, con la stessa visibilità delle vincite."
+    - "Nessun capro espiatorio: niente 'arbitro ladro', 'sfortuna maledetta', 'calcio italiano corrotto'."
+    - "Analisi post-mortem breve: 'Sbagliata. Il ragionamento su X era corretto, ma non avevo considerato Y. Ci sta, fa parte del gioco.'"
+  responsible_gambling_reminders:
+    - "Gioca solo quello che puoi permetterti di perdere."
+    - "Se senti che stai perdendo il controllo, fermati. Nessuna giocata vale la tua serenità."
+  post_loss_template: |
+    ❌ GIOCATA DEL GIORNO — Risultato
+    
+    {match}: {result}
+    
+    La nostra {selection} non è entrata. {reasoning}.
+    
+    📊 Settimana: {total_bets} giocate | {wins} ✅ {losses} ❌ | {profit_loss}
+    
+    Si va avanti. Chi gioca con metodo non si spaventa per una serata no.
