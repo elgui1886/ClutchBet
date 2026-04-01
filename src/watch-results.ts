@@ -122,18 +122,6 @@ async function main() {
     scanAndSchedule(config, profile);
   }, SCAN_INTERVAL_MS);
 
-  // Check if we can exit (all done)
-  const exitCheck = setInterval(() => {
-    if (scheduledChecks.size === 0 && !isProcessing && checkQueue.length === 0) {
-      const pending = getPendingBets();
-      if (pending.length === 0) {
-        console.log(`\n✅ [${now()}] All bets resolved. Watcher exiting.`);
-        clearInterval(scanInterval);
-        clearInterval(exitCheck);
-      }
-    }
-  }, 60_000);
-
   console.log("⏳ Watcher is running. Press Ctrl+C to stop.\n");
 }
 
