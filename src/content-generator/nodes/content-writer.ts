@@ -155,6 +155,14 @@ function buildPrompt(
     .map((p) => `- "${p}"`)
     .join("\n");
 
+  const examplePhrases = (profile.tone.example_phrases ?? [])
+    .map((p) => `- "${p}"`)
+    .join("\n");
+
+  const universe = (profile.profile.universe ?? [])
+    .map((u) => `- **${u.name}**: ${u.role}`)
+    .join("\n");
+
   const sportsData = buildSportsData(format, fixtures);
 
   const channelName =
@@ -168,6 +176,8 @@ function buildPrompt(
     .replace("{channel_name}", channelName)
     .replace("{tone_principles}", tonePrinciples)
     .replace("{forbidden_phrases}", forbiddenPhrases)
+    .replace("{example_phrases}", examplePhrases)
+    .replace("{universe}", universe)
     .replace("{register}", profile.tone.register)
     .replace("{emoji_max}", String(profile.tone.emoji_max))
     .replace("{uppercase_rule}", profile.tone.uppercase_rule)

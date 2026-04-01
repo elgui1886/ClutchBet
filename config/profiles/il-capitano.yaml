@@ -69,7 +69,6 @@ formats:
       Ragionamento: {reasoning}
       
       ⚠️ Rischio: {risk}
-      💰 Stake consigliato: {stake}
       
       #GiocataDelGiorno
 

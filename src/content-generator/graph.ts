@@ -18,7 +18,9 @@ export function buildContentGraph() {
       state.scheduledFormats.length === 0 ? "__end__" : "data_fetcher"
     )
     .addEdge("data_fetcher", "content_writer")
-    .addEdge("content_writer", "reviewer")
+    .addConditionalEdges("content_writer", (state) =>
+      state.reviewBeforePublish ? "reviewer" : "publisher"
+    )
     .addConditionalEdges("reviewer", (state) => {
       const hasApproved = state.contentItems.some((item) => item.approved);
       return hasApproved ? "publisher" : "__end__";

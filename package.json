@@ -9,6 +9,7 @@
     "analysis": "tsx src/index.ts analysis",
     "content": "tsx src/index.ts content",
     "check-results": "tsx src/check-results.ts",
+    "watch-results": "tsx src/watch-results.ts",
     "parse-profile": "tsx src/parse-profile.ts",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"

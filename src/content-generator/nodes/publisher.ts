@@ -11,9 +11,12 @@ import type { ContentStateType, ContentItem } from "../state.js";
 export async function publisherNode(
   state: ContentStateType
 ): Promise<Partial<ContentStateType>> {
-  const { contentItems, publishChannel } = state;
+  const { contentItems, publishChannel, reviewBeforePublish } = state;
 
-  const approved = contentItems.filter((item) => item.approved);
+  // When review is disabled, treat all items as approved
+  const approved = reviewBeforePublish
+    ? contentItems.filter((item) => item.approved)
+    : contentItems.map((item) => ({ ...item, approved: true }));
 
   if (approved.length === 0) {
     console.log("ℹ️  No approved content to publish.");

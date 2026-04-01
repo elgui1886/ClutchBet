@@ -8,6 +8,7 @@ import type { ProfileConfig, ContentItem } from "./state.js";
 interface ContentConfig {
   profile: string;
   publishChannel?: string;
+  reviewBeforePublish?: boolean;
   league?: {
     id?: number;
     season?: number;
@@ -87,6 +88,7 @@ export async function main() {
     leagueId: config.league?.id ?? 135,
     leagueSeason: config.league?.season ?? 2025,
     date: new Date().toISOString().split("T")[0],
+    reviewBeforePublish: config.reviewBeforePublish ?? false,
   });
 
   if (!result.contentItems || result.contentItems.length === 0) {

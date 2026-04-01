@@ -140,6 +140,11 @@ export const ContentState = Annotation.Root({
     reducer: (_prev, next) => next,
     default: () => [],
   }),
+  /** Whether to show human review before publishing */
+  reviewBeforePublish: Annotation<boolean>({
+    reducer: (_prev, next) => next,
+    default: () => false,
+  }),
   /** Overall publish result summary */
   publishResult: Annotation<string>({
     reducer: (_prev, next) => next,
