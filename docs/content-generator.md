@@ -100,6 +100,20 @@ Questo comando:
 
 > Va lanciato dopo che le partite si sono concluse. Può essere eseguito più volte — elabora solo le scommesse non ancora verificate.
 
+### Monitoraggio automatico dei risultati
+
+```bash
+npm run watch-results
+```
+
+Alternativa a `check-results` per un uso hands-off:
+
+- Avviare prima del fischio d'inizio
+- Esegue polling ogni ora su API-Football
+- Quando le partite terminano, valuta le scommesse, genera il recap e pubblica
+- Retry automatico (max 3 tentativi, 30 minuti tra un tentativo e l'altro)
+- Si ferma quando tutte le scommesse pendenti sono state risolte
+
 ## Schema riassuntivo
 
 ```
@@ -118,9 +132,13 @@ Questo comando:
 │  4. npm run content                → genera + pubblica post │
 │     (mattina/pomeriggio, prima degli orari di pubblicazione)│
 │                                                             │
-│  5. npm run check-results          → verifica + recap       │
-│     (sera, dopo le partite)                                 │
+│  5a. npm run check-results         → verifica + recap       │
+│      (sera, dopo le partite — one-shot)                     │
+│                                                             │
+│  5b. npm run watch-results         → verifica + recap       │
+│      (alternativa: daemon con polling automatico)            │
 └─────────────────────────────────────────────────────────────┘
+```
 ```
 
 ## Struttura dei file generati
@@ -131,29 +149,6 @@ Questo comando:
 | `data/clutchbet.db` | Database SQLite (scommesse, risultati, analytics) |
 | `output/content/<rubrica>_<data>.md` | Post generati (backup locale) |
 | `output/recaps/recap_<data>.md` | Post di recap pubblicati |
-
-## Diagramma del grafo LangGraph
-
-```
-[START]
-   │
-   ▼
-[scheduler] ──── nessuna rubrica ──→ [END]
-   │
-   ▼
-[data_fetcher]
-   │
-   ▼
-[content_writer]
-   │
-   ▼
-[reviewer]
-   │
-   ├── nessun post approvato ──→ [END]
-   │
-   ▼
-[publisher] ──→ [END]
-```
 
 ## Note operative
 

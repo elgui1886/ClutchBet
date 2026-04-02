@@ -1,30 +1,17 @@
 ## Progetto
 
-Il progetto contiene **tre workflow LangGraph** più utility commands all'interno di una singola codebase:
+Il progetto contiene **tre workflow LangGraph** più utility commands all'interno di una singola codebase. Architettura: **TypeScript + LangGraph.js**.
 
-### Workflow 1: Generation
-Workflow automatizzato che:
-- Fa scraping su Telegram tra una lista di canali configurabili degli ultimi post pubblicati relativi a un tema pre-stabilito
-- Filtra i post per attinenza (calcio italiano, eventi attivi) tramite GPT-4o
-- I post filtrati vengono dati in pasto a un LLM che genera un nuovo post (immagine + testo) costruito in similitudine
-- Il post generato viene pubblicato su un canale Telegram dedicato
+| Workflow / Comando | Descrizione | Comando |
+|---|---|---|
+| **Generation** | Scraping Telegram → LLM genera post simili → pubblica | `npm run generation` |
+| **Analysis** | Analisi storica di un canale Telegram → report MD | `npm run analysis` |
+| **Content Generator** | Pipeline editoriale: profilo → dati reali → post → review → pubblica | `npm run content` |
+| **Check Results** | Verifica risultati scommesse → genera recap | `npm run check-results` |
+| **Watch Results** | Daemon che fa polling automatico dei risultati | `npm run watch-results` |
+| **Parse Profile** | Converte profilo MD → YAML strutturato | `npm run parse-profile` |
 
-### Workflow 2: Analysis
-Tool one-off per l'analisi di un singolo canale Telegram:
-- Legge lo storico di un canale su un arco temporale configurabile (es. 3-4 mesi)
-- Analizza i post tramite GPT-4o con strategia a chunk (batch analysis → meta-analysis)
-- Produce un documento Markdown con: tone of voice, piano editoriale, pattern ricorrenti, frequenza di pubblicazione, stile dei contenuti
-
-### Workflow 3: Content Generator
-Pipeline editoriale che trasforma un **profilo** (linea editoriale definita in MD/YAML) in post Telegram pronti per la pubblicazione:
-- Parsa un profilo editoriale da Markdown a YAML strutturato (one-off)
-- Scarica dati sportivi reali (partite, quote) da API-Football
-- Schedula quali rubriche generare oggi in base al piano editoriale e alle partite disponibili
-- Genera i post con LLM, rispettando rigorosamente tone of voice, format templates e dati reali
-- Review human-in-the-loop: approvazione prima della pubblicazione
-- Pubblica su Telegram a orari configurabili per rubrica
-- Traccia le scommesse proposte e verifica i risultati a fine partita
-- Genera post recap coerenti con il profilo
+> Per i dettagli architetturali, tech stack e diagrammi dei grafi, vedi `architecture.md`. Per la struttura dei file, vedi `project-structure.md`.
 
 ## Fasi del progetto
 

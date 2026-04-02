@@ -8,6 +8,7 @@ ClutchBet/
 │   ├── setup-telegram.ts              # One-time Telegram auth
 │   ├── parse-profile.ts               # One-off: MD profile → YAML config
 │   ├── check-results.ts               # Check bet results + generate recap
+│   ├── watch-results.ts               # Daemon: poll for results + auto-recap
 │   ├── shared/
 │   │   ├── telegram-utils.ts          # resolvePeer(), createTelegramClient()
 │   │   ├── llm-utils.ts              # loadPrompt()
@@ -56,7 +57,8 @@ ClutchBet/
 │   ├── channel-analysis-final.md      # Meta-analysis → final report
 │   ├── profile-parser.md             # Convert MD profile → structured YAML
 │   ├── content-post.md               # Generate editorial post from profile + data
-│   └── bet-recap.md                   # Generate recap post after bet results
+│   ├── bet-recap.md                   # Generate recap post after bet results
+│   └── results-update.md             # LLM: generate results update post
 ├── data/                              # Runtime data (gitignored)
 │   └── clutchbet.db                   # SQLite database (bet tracking, analytics)
 ├── samples/                           # Reference samples (Release 1)
@@ -64,9 +66,10 @@ ClutchBet/
 ├── temp/                              # Downloaded images (gitignored)
 ├── output/                            # Generated outputs (gitignored)
 │   ├── analysis/                      # Channel analysis reports
-│   ├── content/                       # Generated content posts
-│   ├── recaps/                        # Generated recap posts
-│   └── profiles/                      # Editorial profiles (MD)
+│   ├── post-analysis/                 # Comparative analysis across channels
+│   ├── profiles/                      # Editorial profiles (MD)
+│   ├── content/                       # Generated content posts (created at runtime)
+│   └── recaps/                        # Generated recap posts (created at runtime)
 ├── docs/
 │   ├── architecture.md
 │   ├── project-definition.md
@@ -98,18 +101,13 @@ Bet tracking store backed by SQLite (`data/clutchbet.db`). Uses `better-sqlite3`
 
 Used by the content-generator publisher (to save bets) and check-results (to resolve bets and generate recaps).
 
-- `addBets()` — insert new bets (skips duplicates by ID)
-- `getPendingBets()` — bets without a result
-- `updateBetResult()` — set won/lost/void + match score
-- `markRecapPublished()` — flag bets as recapped
-- `getWeeklyStats()` — win/loss/ROI for last 7 days
-- `getStatsForPeriod(start, end)` — analytics for any date range (with breakdowns by format and selection type)
-- `addBets(bets)` — add new tracked bets (skips duplicates by ID)
+- `addBets(bets)` — insert new bets (skips duplicates by ID)
 - `getPendingBets()` — get all unresolved bets
 - `getUnrecappedBets()` — get resolved bets without a published recap
 - `updateBetResult(betId, result, score)` — mark a bet as won/lost/void
 - `markRecapPublished(betIds)` — flag bets as having their recap published
 - `getWeeklyStats(date)` — calculate win/loss/ROI for a 7-day window
+- `getStatsForPeriod(start, end)` — analytics for any date range (with breakdowns by format and selection type)
 
 ## CLI Dispatcher (`src/index.ts`)
 
@@ -293,6 +291,15 @@ Standalone command to verify bet outcomes and generate recap posts:
 5. Shows the recap for human approval
 6. Publishes to Telegram and marks bets as recapped
 7. Saves recap locally to `output/recaps/`
+
+## Watch Results (`src/watch-results.ts`)
+
+Daemon/polling version of `check-results` for hands-off operation on match days:
+- Polls API-Football at regular intervals (`SCAN_INTERVAL_MS` = 1 hour) for finished matches
+- Evaluates pending bets and generates recap posts automatically
+- Retries on failure (`MAX_RETRIES` = 3, `RETRY_DELAY_MS` = 30 minutes)
+- Uses the same core logic as `check-results` (shared `bet-tracker.ts`, `results-update.md` prompt)
+- Usage: `npm run watch-results`
 
 ## Profile Parser (`src/parse-profile.ts`)
 
