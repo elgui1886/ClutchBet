@@ -59,7 +59,9 @@ Il daemon (`npm run daemon`) è un processo Node.js che resta attivo 24/7 e orch
 - **OS**: Ubuntu 22.04+ / Debian 12+ (consigliato)
 - **RAM**: minimo 1 GB (2 GB consigliati per Puppeteer)
 - **Node.js**: 18 o superiore
-- **pm2**: process manager per tenere vivo il daemon
+- **pm2**: process manager per tenere vivo il daemon (`npm install -g pm2`)
+
+> **Nota Windows**: per test in locale su Windows, gli stessi comandi pm2 funzionano. Il file `ecosystem.config.cjs` risolve le incompatibilità tra pm2 e gli script `.CMD` di Windows (npm/npx).
 
 ## Setup passo per passo
 
@@ -155,8 +157,10 @@ npm run watch-results
 ### 9. Avvia il daemon con pm2
 
 ```bash
-pm2 start npx --name "clutchbet" -- tsx src/daemon.ts
+pm2 start ecosystem.config.cjs
 ```
+
+Questo usa il file `ecosystem.config.cjs` nella root del progetto, che configura pm2 per eseguire il daemon correttamente (senza problemi con `.CMD` su Windows o path su Linux).
 
 Verifica che sia in esecuzione:
 ```bash
@@ -216,8 +220,13 @@ pm2 restart clutchbet
 Il daemon supporta il flag `--now` per triggerare un run immediato (utile per testare):
 
 ```bash
-# Avvia il daemon E lancia subito il ciclo giornaliero
-npx tsx src/daemon.ts --now
+# In locale: avvia il daemon E lancia subito il ciclo giornaliero
+npm run daemon -- --now
+
+# Con pm2: ferma, lancia il test, poi riavvia normalmente
+pm2 stop clutchbet
+npm run daemon -- --now    # Ctrl+C quando finisce
+pm2 start clutchbet
 ```
 
 ## Configurazione avanzata
