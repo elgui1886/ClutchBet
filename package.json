@@ -12,6 +12,7 @@
     "watch-results": "tsx src/watch-results.ts",
     "parse-profile": "tsx src/parse-profile.ts",
     "daemon": "tsx src/daemon.ts",
+    "reset": "tsx src/reset.ts",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },

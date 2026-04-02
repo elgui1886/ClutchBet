@@ -48,6 +48,44 @@ formats:
       Template del post con placeholder:
       {match} | {league} | ore {time}
       Selezione: {selection}
+    example_posts:
+      - |
+        📋 LA LAVAGNA
+
+        Ragazzi, oggi si gioca e io vi racconto come la vedo.
+
+        🔹 Juventus - Roma | Serie A | ore 20:45
+        La Juve in casa non perde da 8 partite. Mourinho arriva con Dybala in dubbio e la difesa rimaneggiata. Nei precedenti: 5 vittorie bianconere nelle ultime 7. L'arbitro è Mariani, media 4.2 cartellini a partita.
+
+        La mia lettura: partita spigolosa, la Roma si chiuderà. Ma la qualità della Juve alla lunga esce.
+        📋 Selezione: 1X + Under 3.5
+        📊 Quota: 1.62
+
+        🔹 Napoli - Atalanta | Serie A | ore 18:00
+        Due squadre che non si risparmiano mai. L'Atalanta segna in trasferta da 11 partite consecutive. Il Napoli in casa ha Over 2.5 nel 60% dei match. Lookman è una mina vagante.
+
+        Qui non mi fido di nessuna difesa.
+        📋 Selezione: Over 2.5
+        📊 Quota: 1.90
+
+        Chi è nel Cerchio ha già la versione estesa con gli scenari.
+
+        #LaLavagna
+      - |
+        📋 LA LAVAGNA
+
+        Stasera c'è roba seria, vi dico la mia.
+
+        🔹 Inter - Milan | Serie A | ore 20:45
+        Derby. Si butta via la tattica e si gioca col cuore. L'Inter è più forte sulla carta ma i derby non seguono la logica. Negli ultimi 6: 2 vittorie a testa e 2 pari. Theo è diffidato, Barella rientra.
+
+        La sento equilibrata, con gol.
+        📋 Selezione: Goal + Over 1.5
+        📊 Quota: 1.55
+
+        Come dico sempre: studiate il campo prima di mettere mano al portafoglio. Ne parliamo stasera nello Spogliatoio.
+
+        #LaLavagna
 
   - name: "Giocata del Giorno"
     slug: "giocata-del-giorno"
@@ -71,6 +109,37 @@ formats:
       ⚠️ Rischio: {risk}
       
       #GiocataDelGiorno
+    example_posts:
+      - |
+        ⚽ GIOCATA DEL GIORNO
+
+        Lazio - Fiorentina | Serie A | ore 20:45
+
+        📋 Selezione: Over 2.5
+        📊 Quota: 1.85
+
+        La Lazio in casa segna sempre, la Viola non sa difendere in trasferta. Ultimi 4 precedenti: tutti sopra i 2.5 gol. Immobile è in stato di grazia, 6 gol nelle ultime 5. La Fiorentina col baricentro alto lascia spazi enormi.
+
+        Questa è una di quelle che mi piacciono: dato chiaro, quota onesta.
+
+        ⚠️ Rischio: medio
+
+        #GiocataDelGiorno
+      - |
+        ⚽ GIOCATA DEL GIORNO
+
+        Bologna - Torino | Serie A | ore 18:00
+
+        📋 Selezione: 1
+        📊 Quota: 2.05
+
+        Il Bologna in casa è una macchina. 7 vittorie nelle ultime 9 al Dall'Ara. Il Torino fuori casa è un'altra squadra — senza cattiveria, senza verticalità. Thiago Motta ha la rosa al completo. Per me è un buon momento per prendersi la quota.
+
+        Non è una certezza, ma il rapporto rischio-rendimento è ottimo.
+
+        ⚠️ Rischio: medio-alto
+
+        #GiocataDelGiorno
 
   - name: "Cartellino Tattico"
     slug: "cartellino-tattico"
@@ -94,6 +163,23 @@ formats:
       📊 Quota: {odds}
       
       #CartelliniTattico
+    example_posts:
+      - |
+        🟨 CARTELLINO TATTICO
+
+        Milan - Roma | Arbitro: Chiffi
+
+        Chiffi. Uno che il cartellino lo tira fuori come il portafoglio al ristorante: spesso e volentieri. Media 5.1 cartellini a partita in Serie A quest'anno.
+
+        👤 Theo Hernandez: 7 gialli in 18 partite, gioco irruento sulla fascia. Quando l'avversario lo punta, lui risponde col tackle.
+        👤 Pellegrini: diffidato, gioca nervoso da settimane, già ammonito nelle ultime 2.
+
+        Con Chiffi che arbitra e questi due in campo, almeno un cartellino lo vedo ad occhi chiusi.
+
+        📋 Selezione: Almeno 1 cartellino Theo o Pellegrini
+        📊 Quota: 1.50
+
+        #CartelliniTattico
 
   - name: "Il Fischio Finale"
     slug: "il-fischio-finale"
@@ -110,6 +196,27 @@ formats:
       Commento: {comment}
       
       #IlFischioFinale
+    example_posts:
+      - |
+        📊 IL FISCHIO FINALE
+
+        Settimana chiusa. Come sempre, vi racconto tutto.
+
+        7 giocate | 5 ✅ 2 ❌ | 71%
+
+        ✅ Juve-Roma Over 2.5 — entrata facile
+        ✅ Napoli 1 — non c'è stata partita
+        ✅ Milan-Lazio Goal — come previsto
+        ❌ Inter Under 2.5 — Lautaro ci ha rovinato al 89'
+        ✅ Bologna 1X — solida
+        ✅ Fiorentina-Torino Over 2.5 — spettacolo
+        ❌ Atalanta-Lecce 1 primo tempo — il Lecce si è chiuso troppo bene
+
+        Settimana positiva. Le due sbagliate? Una è sfiga pura (gol al 89'), l'altra è stata una lettura sbagliata del primo tempo. Ci sta.
+
+        Chi gioca con metodo non si spaventa per due no. Si va avanti.
+
+        #IlFischioFinale
 
   - name: "Pillola"
     slug: "pillola"
@@ -124,6 +231,35 @@ formats:
       {content}
       
       #Pillola
+    example_posts:
+      - |
+        📚 PILLOLA
+
+        "La quota alta paga di più" — sì, ma sai perché?
+
+        La quota riflette la probabilità. Quota 1.50 = il bookmaker dice "succede nel 67% dei casi". Quota 5.00 = "succede nel 20%".
+
+        Il trucco non è cercare quote alte. È trovare quote dove TU credi che la probabilità reale sia più alta di quella del bookmaker. Questo si chiama value betting.
+
+        Se pensi che il Milan vinca al 50% e la quota è 2.20 (che dice 45%), hai valore. Se pensi che vinca al 40%, no.
+
+        Studia prima, gioca dopo.
+
+        #Pillola
+      - |
+        📚 PILLOLA
+
+        Bankroll management: la regola che salva il portafoglio.
+
+        Decidi un budget mensile. Il 100% è il tuo bankroll. Ogni giocata dovrebbe essere tra l'1% e il 5%. Mai di più.
+
+        Se hai 200€ di bankroll, ogni giocata è tra 2€ e 10€. Anche se sei convintissimo. Anche se "è sicura".
+
+        Perché? Perché anche la giocata migliore del mondo può andare male. E se metti il 30% su una singola, bastano 3 sbagliate di fila per essere fuori.
+
+        Metodo > emozione. Sempre.
+
+        #Pillola
 
   - name: "La Grande Occasione"
     slug: "la-grande-occasione"
@@ -145,6 +281,26 @@ formats:
       Attenzione: questa è ad alto rischio, gioca solo quello che puoi perdere.
       
       #LaGrandeOccasione
+    example_posts:
+      - |
+        🚨 LA GRANDE OCCASIONE
+
+        Stasera è serata di cartello. Tre partite grosse, quota totale che fa girare la testa. Ma il ragionamento c'è.
+
+        🔹 Inter - Juventus: Goal @ 1.70
+        Nei derby d'Italia degli ultimi 3 anni, entrambe segnano nel 70% dei casi. Lautaro e Vlahovic in serata.
+
+        🔹 Napoli - Roma: Over 2.5 @ 1.95
+        Il Napoli in casa è una macchina offensiva. La Roma concede. Ultimi 3 precedenti: 3-1, 2-1, 4-0.
+
+        🔹 Milan - Atalanta: 1X @ 1.35
+        Il Milan in casa tiene. L'Atalanta è forte ma a San Siro fatica. Milan imbattuto nelle ultime 5 casalinghe.
+
+        📊 Quota totale: 4.48
+        
+        ⚠️ È una multipla, ragazzi. Il rischio è alto per definizione. Giocate solo quello che potete perdere senza rovinarvi la serata. Io ci metto il ragionamento, voi ci mettete la testa.
+
+        #LaGrandeOccasione
 
   - name: "Il Derby"
     slug: "il-derby"

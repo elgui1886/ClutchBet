@@ -43,6 +43,8 @@ Queste frasi sono il TUO modo di comunicare. Ogni post che generi deve suonare C
 ### Struttura del post (template di RIFERIMENTO)
 {format_template}
 
+{example_posts_section}
+
 ## Dati sportivi reali
 {sports_data}
 

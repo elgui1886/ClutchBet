@@ -125,13 +125,7 @@ async function main() {
     console.log("⏭️  Aggiornamento non pubblicato.");
   }
 
-  // Save locally
-  const outputDir = path.resolve("output", "recaps");
-  if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const recapPath = path.join(outputDir, `update_${timestamp}.md`);
-  fs.writeFileSync(recapPath, updateText, "utf-8");
-  console.log(`💾 Update saved to: ${recapPath}`);
+
 }
 
 // ── Result fetching ──────────────────────────────────────────

@@ -34,6 +34,7 @@ export interface FormatConfig {
   requires_data: string[];
   template: string;
   publish_time?: string;  // HH:MM — preferred publish time (e.g. "14:00")
+  example_posts?: string[];  // Concrete example posts to guide LLM style
 }
 
 /** The full parsed YAML profile */
@@ -89,6 +90,7 @@ export interface ContentItem {
   formatSlug: string;
   formatName: string;
   text: string;
+  imageBase64?: string;    // PNG bet-slip image (base64) — only for bet-containing formats
   publishTime?: string;  // HH:MM — scheduled publish time
   bets?: BetSelection[]; // structured bets for tracking
   approved: boolean;

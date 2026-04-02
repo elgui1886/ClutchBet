@@ -34,28 +34,6 @@ function loadProfile(profilePath: string): ProfileConfig {
   return parseYaml(raw) as ProfileConfig;
 }
 
-function saveOutput(items: ContentItem[]): string {
-  const outputDir = path.resolve("output", "content");
-  if (!fs.existsSync(outputDir)) {
-    fs.mkdirSync(outputDir, { recursive: true });
-  }
-
-  const timestamp = new Date().toISOString().split("T")[0];
-
-  for (const item of items) {
-    const filename = `${item.formatSlug}_${timestamp}.md`;
-    const filePath = path.join(outputDir, filename);
-    const header =
-      `<!-- Format: ${item.formatName} -->\n` +
-      `<!-- Date: ${timestamp} -->\n` +
-      `<!-- Approved: ${item.approved} -->\n` +
-      `<!-- Published: ${item.published} -->\n\n`;
-    fs.writeFileSync(filePath, header + item.text, "utf-8");
-  }
-
-  return outputDir;
-}
-
 export async function main() {
   console.log("🚀 Starting content-generator workflow...\n");
 
@@ -95,9 +73,6 @@ export async function main() {
     console.log("⚠️  No content generated. Workflow complete.");
     process.exit(0);
   }
-
-  const outputDir = saveOutput(result.contentItems);
-  console.log(`\n💾 Output saved to: ${outputDir}`);
 
   const approved = result.contentItems.filter((i: ContentItem) => i.approved);
   const published = result.contentItems.filter((i: ContentItem) => i.published);

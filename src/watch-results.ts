@@ -305,8 +305,6 @@ async function publishUpdate(
     console.log("⚠️  No publish channel configured.");
   }
 
-  // Save locally
-  saveRecap(updateText);
 }
 
 // ── Result fetching ──────────────────────────────────────────
@@ -567,14 +565,7 @@ function askUser(question: string): Promise<string> {
   });
 }
 
-function saveRecap(text: string): void {
-  const outputDir = path.resolve("output", "recaps");
-  if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
-  const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-  const recapPath = path.join(outputDir, `update_${timestamp}.md`);
-  fs.writeFileSync(recapPath, text, "utf-8");
-  console.log(`💾 Update saved to: ${recapPath}`);
-}
+
 
 function getMockResults(bets: TrackedBet[]): MatchResult[] {
   console.log("🔧 Using mock results for development\n");

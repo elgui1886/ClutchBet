@@ -1,7 +1,10 @@
 import "dotenv/config";
+import { CustomFile } from "telegram/client/uploads";
 import { createTelegramClient, resolvePeer } from "../../shared/telegram-utils.js";
 import { addBets, profileSlugFromPath, type TrackedBet } from "../../shared/bet-tracker.js";
 import type { ContentStateType, ContentItem } from "../state.js";
+
+const MAX_CAPTION = 1024;
 
 /**
  * Publisher node — sends approved content items to Telegram.
@@ -64,10 +67,26 @@ export async function publisherNode(
 
       try {
         console.log(`  📨 Sending: ${item.formatName}...`);
-        await client.sendMessage(peer, { message: item.text });
+
+        if (item.imageBase64) {
+          // Send image + caption (or image + follow-up if text is too long)
+          const imageBuffer = Buffer.from(item.imageBase64, "base64");
+          const file = new CustomFile("post.png", imageBuffer.length, "", imageBuffer);
+
+          if (item.text.length <= MAX_CAPTION) {
+            await client.sendFile(peer, { file, caption: item.text });
+          } else {
+            await client.sendFile(peer, { file });
+            await client.sendMessage(peer, { message: item.text });
+          }
+        } else {
+          // Text-only post
+          await client.sendMessage(peer, { message: item.text });
+        }
+
         item.published = true;
-        results.push(`✅ ${item.formatName}: published at ${item.publishTime ?? "now"}`);
-        console.log(`  ✅ ${item.formatName} published\n`);
+        results.push(`✅ ${item.formatName}: published at ${item.publishTime ?? "now"}${item.imageBase64 ? " (with image)" : ""}`);
+        console.log(`  ✅ ${item.formatName} published${item.imageBase64 ? " (with image)" : ""}\n`);
 
         // Track bets for result checking
         if (item.bets && item.bets.length > 0) {
