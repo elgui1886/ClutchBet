@@ -4,12 +4,12 @@ import Database from "better-sqlite3";
 
 const DATA_DIR = path.resolve("data");
 const DB_PATH = path.join(DATA_DIR, "clutchbet.db");
-const LEGACY_JSON = path.join(DATA_DIR, "bets.json");
 
 /** A single bet selection within a published post */
 export interface TrackedBet {
   id: string;                    // unique: date_formatSlug_index
   slipId: string;                // groups bets into a schedina: date_formatSlug
+  profile: string;               // profile slug (e.g. "il-capitano")
   date: string;                  // YYYY-MM-DD
   formatSlug: string;
   formatName: string;
@@ -55,6 +55,7 @@ function getDb(): Database.Database {
     CREATE TABLE IF NOT EXISTS bets (
       id             TEXT PRIMARY KEY,
       slip_id        TEXT NOT NULL,
+      profile        TEXT NOT NULL,
       date           TEXT NOT NULL,
       format_slug    TEXT NOT NULL,
       format_name    TEXT NOT NULL,
@@ -73,20 +74,13 @@ function getDb(): Database.Database {
     )
   `);
 
-  // Migrate: add slip_id column if missing (existing DBs)
-  const columns = db.pragma("table_info(bets)") as Array<{ name: string }>;
-  if (!columns.some((c) => c.name === "slip_id")) {
-    db.exec("ALTER TABLE bets ADD COLUMN slip_id TEXT NOT NULL DEFAULT ''");
-    // Backfill: slip_id = date + "_" + format_slug
-    db.exec("UPDATE bets SET slip_id = date || '_' || format_slug WHERE slip_id = ''");
-  }
-
   // Create indexes for common queries
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_bets_date ON bets(date);
     CREATE INDEX IF NOT EXISTS idx_bets_result ON bets(result);
     CREATE INDEX IF NOT EXISTS idx_bets_recap ON bets(recap_published);
     CREATE INDEX IF NOT EXISTS idx_bets_slip ON bets(slip_id);
+    CREATE INDEX IF NOT EXISTS idx_bets_profile ON bets(profile);
   `);
 
   return db;
@@ -96,6 +90,7 @@ function rowToBet(row: Record<string, unknown>): TrackedBet {
   return {
     id: row.id as string,
     slipId: row.slip_id as string,
+    profile: row.profile as string,
     date: row.date as string,
     formatSlug: row.format_slug as string,
     formatName: row.format_name as string,
@@ -113,58 +108,22 @@ function rowToBet(row: Record<string, unknown>): TrackedBet {
   };
 }
 
-// ── Migration from legacy JSON ───────────────────────────────
+// ── Public API ───────────────────────────────────────────────
 
-function migrateFromJson(db: Database.Database): void {
-  if (!fs.existsSync(LEGACY_JSON)) return;
-
-  const existing = db.prepare("SELECT COUNT(*) as cnt FROM bets").get() as { cnt: number };
-  if (existing.cnt > 0) return; // already migrated
-
-  console.log("📦 Migrating bets from JSON to SQLite...");
-  const raw = fs.readFileSync(LEGACY_JSON, "utf-8");
-  const store = JSON.parse(raw) as BetsStore;
-
-  const insert = db.prepare(`
-    INSERT OR IGNORE INTO bets (id, slip_id, date, format_slug, format_name, post_text, home_team, away_team, league, kickoff, selection, odds, result, match_score, recap_published, resolved_at)
-    VALUES (@id, @slipId, @date, @formatSlug, @formatName, @postText, @homeTeam, @awayTeam, @league, @kickoff, @selection, @odds, @result, @matchScore, @recapPublished, @resolvedAt)
-  `);
-
-  const migrate = db.transaction((bets: TrackedBet[]) => {
-    for (const b of bets) {
-      insert.run({
-        id: b.id,
-        slipId: b.slipId || `${b.date}_${b.formatSlug}`,
-        date: b.date,
-        formatSlug: b.formatSlug,
-        formatName: b.formatName,
-        postText: b.postText,
-        homeTeam: b.homeTeam,
-        awayTeam: b.awayTeam,
-        league: b.league,
-        kickoff: b.kickoff,
-        selection: b.selection,
-        odds: b.odds,
-        result: b.result ?? null,
-        matchScore: b.matchScore ?? null,
-        recapPublished: b.recapPublished ? 1 : 0,
-        resolvedAt: b.resolvedAt ?? null,
-      });
-    }
-  });
-
-  migrate(store.bets);
-  console.log(`✅ Migrated ${store.bets.length} bet(s). You can safely delete ${LEGACY_JSON}`);
+/**
+ * Extract profile slug from a profile YAML path.
+ * e.g. "config/profiles/il-capitano.yaml" → "il-capitano"
+ */
+export function profileSlugFromPath(profilePath: string): string {
+  const basename = path.basename(profilePath, path.extname(profilePath));
+  return basename;
 }
-
-// ── Public API (same interface as before) ────────────────────
 
 /**
  * Load all bets from the database.
  */
 export function loadBets(): BetsStore {
   const db = getDb();
-  migrateFromJson(db);
   const rows = db.prepare("SELECT * FROM bets ORDER BY date DESC, kickoff ASC").all();
   db.close();
   return { bets: rows.map((r) => rowToBet(r as Record<string, unknown>)) };
@@ -177,11 +136,10 @@ export function addBets(newBets: TrackedBet[]): void {
   if (newBets.length === 0) return;
 
   const db = getDb();
-  migrateFromJson(db);
 
   const insert = db.prepare(`
-    INSERT OR IGNORE INTO bets (id, slip_id, date, format_slug, format_name, post_text, home_team, away_team, league, kickoff, selection, odds)
-    VALUES (@id, @slipId, @date, @formatSlug, @formatName, @postText, @homeTeam, @awayTeam, @league, @kickoff, @selection, @odds)
+    INSERT OR IGNORE INTO bets (id, slip_id, profile, date, format_slug, format_name, post_text, home_team, away_team, league, kickoff, selection, odds)
+    VALUES (@id, @slipId, @profile, @date, @formatSlug, @formatName, @postText, @homeTeam, @awayTeam, @league, @kickoff, @selection, @odds)
   `);
 
   const insertMany = db.transaction((bets: TrackedBet[]) => {
@@ -189,6 +147,7 @@ export function addBets(newBets: TrackedBet[]): void {
       insert.run({
         id: b.id,
         slipId: b.slipId,
+        profile: b.profile,
         date: b.date,
         formatSlug: b.formatSlug,
         formatName: b.formatName,
@@ -208,23 +167,21 @@ export function addBets(newBets: TrackedBet[]): void {
 }
 
 /**
- * Get all pending (unresolved) bets.
+ * Get all pending (unresolved) bets for a profile.
  */
-export function getPendingBets(): TrackedBet[] {
+export function getPendingBets(profile: string): TrackedBet[] {
   const db = getDb();
-  migrateFromJson(db);
-  const rows = db.prepare("SELECT * FROM bets WHERE result IS NULL ORDER BY date, kickoff").all();
+  const rows = db.prepare("SELECT * FROM bets WHERE result IS NULL AND profile = ? ORDER BY date, kickoff").all(profile);
   db.close();
   return rows.map((r) => rowToBet(r as Record<string, unknown>));
 }
 
 /**
- * Get all resolved bets that haven't had a recap published yet.
+ * Get all resolved bets that haven't had a recap published yet, for a profile.
  */
-export function getUnrecappedBets(): TrackedBet[] {
+export function getUnrecappedBets(profile: string): TrackedBet[] {
   const db = getDb();
-  migrateFromJson(db);
-  const rows = db.prepare("SELECT * FROM bets WHERE result IS NOT NULL AND recap_published = 0 ORDER BY date, kickoff").all();
+  const rows = db.prepare("SELECT * FROM bets WHERE result IS NOT NULL AND recap_published = 0 AND profile = ? ORDER BY date, kickoff").all(profile);
   db.close();
   return rows.map((r) => rowToBet(r as Record<string, unknown>));
 }
@@ -259,9 +216,9 @@ export function markRecapPublished(betIds: string[]): void {
 }
 
 /**
- * Get weekly stats (for Il Fischio Finale).
+ * Get weekly stats for a profile.
  */
-export function getWeeklyStats(weekEndDate: string): {
+export function getWeeklyStats(weekEndDate: string, profile: string): {
   total: number;
   won: number;
   lost: number;
@@ -270,7 +227,6 @@ export function getWeeklyStats(weekEndDate: string): {
   roi: number;
 } {
   const db = getDb();
-  migrateFromJson(db);
 
   const endDate = new Date(weekEndDate);
   const startDate = new Date(endDate);
@@ -278,9 +234,9 @@ export function getWeeklyStats(weekEndDate: string): {
   const startStr = startDate.toISOString().split("T")[0];
   const endStr = weekEndDate;
 
-  const rows = db
-    .prepare("SELECT result, odds FROM bets WHERE date >= ? AND date <= ?")
-    .all(startStr, endStr) as Array<{ result: string | null; odds: number }>;
+  const rows = db.prepare(
+    "SELECT result, odds FROM bets WHERE date >= ? AND date <= ? AND profile = ?"
+  ).all(startStr, endStr, profile) as Array<{ result: string | null; odds: number }>;
   db.close();
 
   const won = rows.filter((r) => r.result === "won").length;
@@ -300,10 +256,10 @@ export function getWeeklyStats(weekEndDate: string): {
 }
 
 /**
- * Get stats for an arbitrary date range.
+ * Get stats for an arbitrary date range, for a profile.
  * Useful for monthly, quarterly, and annual analysis.
  */
-export function getStatsForPeriod(startDate: string, endDate: string): {
+export function getStatsForPeriod(startDate: string, endDate: string, profile: string): {
   total: number;
   won: number;
   lost: number;
@@ -316,11 +272,10 @@ export function getStatsForPeriod(startDate: string, endDate: string): {
   bySelection: Record<string, { total: number; won: number; lost: number }>;
 } {
   const db = getDb();
-  migrateFromJson(db);
 
-  const rows = db
-    .prepare("SELECT * FROM bets WHERE date >= ? AND date <= ? ORDER BY date, kickoff")
-    .all(startDate, endDate) as Array<Record<string, unknown>>;
+  const rows = db.prepare(
+    "SELECT * FROM bets WHERE date >= ? AND date <= ? AND profile = ? ORDER BY date, kickoff"
+  ).all(startDate, endDate, profile) as Array<Record<string, unknown>>;
   db.close();
 
   const bets = rows.map(rowToBet);
@@ -410,25 +365,22 @@ function computeSchedina(slipId: string, bets: TrackedBet[]): Schedina {
 }
 
 /**
- * Get all active schedine (not fully resolved or recently resolved).
+ * Get all active schedine (not fully resolved or recently resolved) for a profile.
  * Groups bets by slip_id and computes each schedina's status.
  */
-export function getActiveSchedine(): Schedina[] {
+export function getActiveSchedine(profile: string): Schedina[] {
   const db = getDb();
-  migrateFromJson(db);
 
   // Get all slips that have at least one pending bet OR were resolved today
   const today = new Date().toISOString().split("T")[0];
-  const rows = db
-    .prepare(`
-      SELECT * FROM bets WHERE slip_id IN (
-        SELECT DISTINCT slip_id FROM bets
-        WHERE result IS NULL
-           OR (resolved_at IS NOT NULL AND date(resolved_at) = ?)
-      )
-      ORDER BY slip_id, kickoff
-    `)
-    .all(today) as Array<Record<string, unknown>>;
+  const rows = db.prepare(`
+    SELECT * FROM bets WHERE slip_id IN (
+      SELECT DISTINCT slip_id FROM bets
+      WHERE (result IS NULL OR (resolved_at IS NOT NULL AND date(resolved_at) = ?))
+        AND profile = ?
+    )
+    ORDER BY slip_id, kickoff
+  `).all(today, profile) as Array<Record<string, unknown>>;
   db.close();
 
   const bets = rows.map(rowToBet);
@@ -436,14 +388,13 @@ export function getActiveSchedine(): Schedina[] {
 }
 
 /**
- * Get all schedine for a given date.
+ * Get all schedine for a given date, for a profile.
  */
-export function getSchedineForDate(date: string): Schedina[] {
+export function getSchedineForDate(date: string, profile: string): Schedina[] {
   const db = getDb();
-  migrateFromJson(db);
-  const rows = db
-    .prepare("SELECT * FROM bets WHERE date = ? ORDER BY slip_id, kickoff")
-    .all(date) as Array<Record<string, unknown>>;
+  const rows = db.prepare(
+    "SELECT * FROM bets WHERE date = ? AND profile = ? ORDER BY slip_id, kickoff"
+  ).all(date, profile) as Array<Record<string, unknown>>;
   db.close();
 
   return groupIntoSchedine(rows.map(rowToBet));

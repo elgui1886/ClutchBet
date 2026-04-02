@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { createTelegramClient, resolvePeer } from "../../shared/telegram-utils.js";
-import { addBets, type TrackedBet } from "../../shared/bet-tracker.js";
+import { addBets, profileSlugFromPath, type TrackedBet } from "../../shared/bet-tracker.js";
 import type { ContentStateType, ContentItem } from "../state.js";
 
 /**
@@ -11,7 +11,8 @@ import type { ContentStateType, ContentItem } from "../state.js";
 export async function publisherNode(
   state: ContentStateType
 ): Promise<Partial<ContentStateType>> {
-  const { contentItems, publishChannel, reviewBeforePublish } = state;
+  const { contentItems, publishChannel, reviewBeforePublish, profilePath } = state;
+  const profileSlug = profileSlugFromPath(profilePath);
 
   // When review is disabled, treat all items as approved
   const approved = reviewBeforePublish
@@ -70,7 +71,7 @@ export async function publisherNode(
 
         // Track bets for result checking
         if (item.bets && item.bets.length > 0) {
-          trackPublishedBets(item);
+          trackPublishedBets(item, profileSlug);
         }
       } catch (err) {
         results.push(`❌ ${item.formatName}: ${err}`);
@@ -126,13 +127,14 @@ async function waitUntil(timeStr: string, formatName: string): Promise<void> {
 /**
  * Saves published bets to the tracker for later result checking.
  */
-function trackPublishedBets(item: ContentItem): void {
+function trackPublishedBets(item: ContentItem, profileSlug: string): void {
   const today = new Date().toISOString().split("T")[0];
   const slipId = `${today}_${item.formatSlug}`;
 
   const tracked: TrackedBet[] = (item.bets ?? []).map((bet, i) => ({
     id: `${today}_${item.formatSlug}_${i}`,
     slipId,
+    profile: profileSlug,
     date: today,
     formatSlug: item.formatSlug,
     formatName: item.formatName,

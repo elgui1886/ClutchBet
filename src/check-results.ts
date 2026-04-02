@@ -11,6 +11,7 @@ import {
   updateBetResult,
   markRecapPublished,
   getActiveSchedine,
+  profileSlugFromPath,
   type TrackedBet,
   type Schedina,
 } from "./shared/bet-tracker.js";
@@ -38,12 +39,16 @@ interface MatchResult {
 async function main() {
   console.log("🔍 Checking results for pending bets...\n");
 
-  const pending = getPendingBets();
+  const config = loadContentConfig();
+  const profileSlug = profileSlugFromPath(config.profile);
+
+  const pending = getPendingBets(profileSlug);
   if (pending.length === 0) {
-    console.log("✅ No pending bets to check.");
+    console.log(`✅ No pending bets for profile "${profileSlug}".`);
     process.exit(0);
   }
 
+  console.log(`📄 Profile: ${profileSlug}`);
   console.log(`📋 ${pending.length} pending bet(s):\n`);
   for (const bet of pending) {
     console.log(`   ${bet.homeTeam} vs ${bet.awayTeam} — ${bet.selection} @ ${bet.odds} [${bet.slipId}]`);
@@ -51,7 +56,6 @@ async function main() {
   console.log();
 
   // Fetch match results
-  const config = loadContentConfig();
   const results = await fetchResults(pending, config);
 
   // Evaluate each bet
@@ -84,7 +88,7 @@ async function main() {
 
   // Get schedine status — only for schedine involved in this run
   const involvedSlipIds = new Set(resolved.map((b) => b.slipId));
-  const allSchedine = getActiveSchedine();
+  const allSchedine = getActiveSchedine(profileSlug);
   const schedine = allSchedine.filter((s) => involvedSlipIds.has(s.slipId));
 
   console.log("📋 Stato schedine coinvolte:\n");

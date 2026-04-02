@@ -97,17 +97,20 @@ Shared Telegram infrastructure used by both workflows:
 
 ### `bet-tracker.ts`
 
-Bet tracking store backed by SQLite (`data/clutchbet.db`). Uses `better-sqlite3` for synchronous, high-performance queries. Automatically migrates data from legacy `data/bets.json` on first run.
+Bet tracking store backed by SQLite (`data/clutchbet.db`). Uses `better-sqlite3` for synchronous, high-performance queries. Every bet is associated with a **profile slug** (e.g. `"il-capitano"`) to support multi-profile operation.
 
-Used by the content-generator publisher (to save bets) and check-results (to resolve bets and generate recaps).
+Used by the content-generator publisher (to save bets) and check-results/watch-results (to resolve bets and generate recaps).
 
+- `profileSlugFromPath(path)` — extract profile slug from YAML path (e.g. `"config/profiles/il-capitano.yaml"` → `"il-capitano"`)
 - `addBets(bets)` — insert new bets (skips duplicates by ID)
-- `getPendingBets()` — get all unresolved bets
-- `getUnrecappedBets()` — get resolved bets without a published recap
+- `getPendingBets(profile)` — get unresolved bets for a profile
+- `getUnrecappedBets(profile)` — get resolved bets without a published recap, for a profile
 - `updateBetResult(betId, result, score)` — mark a bet as won/lost/void
 - `markRecapPublished(betIds)` — flag bets as having their recap published
-- `getWeeklyStats(date)` — calculate win/loss/ROI for a 7-day window
-- `getStatsForPeriod(start, end)` — analytics for any date range (with breakdowns by format and selection type)
+- `getWeeklyStats(date, profile)` — calculate win/loss/ROI for a 7-day window, per profile
+- `getStatsForPeriod(start, end, profile)` — analytics for any date range, per profile (with breakdowns by format and selection type)
+- `getActiveSchedine(profile)` — active bet slips grouped by slip_id, per profile
+- `getSchedineForDate(date, profile)` — all bet slips for a date, per profile
 
 ## CLI Dispatcher (`src/index.ts`)
 
@@ -383,9 +386,9 @@ Runtime data directory for bet tracking:
 
 - `data/clutchbet.db` — SQLite database with `bets` table (indexed by date, result, recap status). Supports instant queries for daily, weekly, monthly, and annual analytics
 
-The database is created automatically on first run. If a legacy `data/bets.json` file exists, its contents are migrated automatically.
+The database is created automatically on first run.
 
-Listed in `.gitignore`.
+Listened in `.gitignore`.
 
 ## Temp (`temp/`)
 

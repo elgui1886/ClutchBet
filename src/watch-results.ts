@@ -11,6 +11,7 @@ import {
   updateBetResult,
   markRecapPublished,
   getActiveSchedine,
+  profileSlugFromPath,
   type TrackedBet,
   type Schedina,
 } from "./shared/bet-tracker.js";
@@ -108,18 +109,19 @@ async function main() {
 
   const config = loadContentConfig();
   const profile = loadProfile(config.profile);
+  const profileSlug = profileSlugFromPath(config.profile);
 
-  console.log(`📄 Profile: ${profile.profile.name}`);
+  console.log(`📄 Profile: ${profile.profile.name} (${profileSlug})`);
   console.log(`📡 Publish channel: ${config.publishChannel ?? "none"}`);
   console.log(`📝 Review before publish: ${config.reviewBeforePublish ?? false}\n`);
 
   // Initial scan & schedule
-  scanAndSchedule(config, profile);
+  scanAndSchedule(config, profile, profileSlug);
 
   // Periodic re-scan for new bets (published by npm run content meanwhile)
   const scanInterval = setInterval(() => {
     console.log(`\n🔄 [${now()}] Re-scanning for new pending bets...`);
-    scanAndSchedule(config, profile);
+    scanAndSchedule(config, profile, profileSlug);
   }, SCAN_INTERVAL_MS);
 
   console.log("⏳ Watcher is running. Press Ctrl+C to stop.\n");
@@ -127,8 +129,8 @@ async function main() {
 
 // ── Scheduling ───────────────────────────────────────────────
 
-function scanAndSchedule(config: ContentConfig, profile: ProfileConfig) {
-  const pending = getPendingBets();
+function scanAndSchedule(config: ContentConfig, profile: ProfileConfig, profileSlug: string) {
+  const pending = getPendingBets(profileSlug);
   if (pending.length === 0) {
     console.log("✅ No pending bets.");
     return;
@@ -251,7 +253,8 @@ async function publishUpdate(
   profile: ProfileConfig
 ) {
   const involvedSlipIds = new Set(resolved.map((b) => b.slipId));
-  const allSchedine = getActiveSchedine();
+  const profileSlug = resolved[0]?.profile ?? "";
+  const allSchedine = getActiveSchedine(profileSlug);
   const schedine = allSchedine.filter((s) => involvedSlipIds.has(s.slipId));
 
   console.log("\n📋 Stato schedine coinvolte:");

@@ -56,6 +56,6 @@ Architettura scelta: **TypeScript + LangGraph.js** (vedi `architecture.md` per i
 
 13. ✅ **[COMPLETATA]** — Publisher: nodo che pubblica i post approvati su Telegram a orari configurabili (`publish_time` per ogni format). Salva automaticamente le scommesse nel tracker per la verifica successiva.
 
-14. ✅ **[COMPLETATA]** — Bet tracker: modulo condiviso (`bet-tracker.ts`) che gestisce un database SQLite (`data/clutchbet.db`) con tutte le scommesse pubblicate. Supporta: salvataggio, aggiornamento risultati, calcolo statistiche settimanali e per periodo arbitrario (con breakdown per rubrica e tipo di selezione). Migrazione automatica da legacy JSON.
+14. ✅ **[COMPLETATA]** — Bet tracker: modulo condiviso (`bet-tracker.ts`) che gestisce un database SQLite (`data/clutchbet.db`) con tutte le scommesse pubblicate, **filtrate per profilo**. Supporta: salvataggio, aggiornamento risultati, calcolo statistiche settimanali e per periodo arbitrario (con breakdown per rubrica e tipo di selezione).
 
 15. ✅ **[COMPLETATA]** — Check results: comando `npm run check-results` che verifica i risultati delle scommesse pendenti tramite API-Football, valuta automaticamente ogni selezione (1X2, Over/Under, Goal/NoGoal, Double Chance, Multigol), genera un post recap con LLM nel tono del profilo, e pubblica su Telegram con approvazione.
