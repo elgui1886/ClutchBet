@@ -78,7 +78,7 @@ A one-off utility that converts a human-written Markdown profile (e.g. `output/p
 | **Image Rendering** | Puppeteer (headless Chrome) | Renders HTML/CSS bet-slip template to PNG screenshot |
 | **Publishing** | Telegram channel | Generated post sent directly to a configured Telegram channel |
 | **Sports Data API** | API-Football (api-sports.io) | Real fixtures, odds (1X2, Over/Under, Goal/NoGoal), match results for content generation and bet tracking |
-| **Bet Storage** | better-sqlite3 (SQLite) | Local database for bet tracking, result verification, and performance analytics |
+| **Bet Storage** | better-sqlite3 (SQLite) | Local database for bet tracking, result verification, performance analytics, and content publish queue |
 | **Trigger** | CLI (`tsx`) | Manual execution via `npm start` |
 | **Scheduling (Future)** | node-cron / system cron | Daily automated execution |
 | **Configuration** | YAML + .env | Channels, topics, profiles, API keys |

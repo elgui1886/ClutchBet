@@ -3,6 +3,11 @@ import cron from "node-cron";
 import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import {
+  hasContentForDate,
+  getPendingContent,
+  expireOldContent,
+} from "./shared/content-store.js";
 
 // ── Configuration ────────────────────────────────────────────
 
@@ -90,6 +95,12 @@ function stopAllWatchers(): void {
   activeWatchers = [];
 }
 
+// ── Helpers ──────────────────────────────────────────────────
+
+function today(): string {
+  return new Date().toISOString().split("T")[0];
+}
+
 // ── Daily orchestration ──────────────────────────────────────
 
 async function dailyRun(): Promise<void> {
@@ -107,13 +118,48 @@ async function dailyRun(): Promise<void> {
       return;
     }
 
+    const date = today();
+
+    // Expire old content from previous days
+    const expired = expireOldContent(date);
+    if (expired > 0) {
+      log(`🧹 Expired ${expired} old content queue item(s) from previous days.`);
+    }
+
     log(
       `📋 Found ${profiles.length} profile(s): ${profiles.map((p) => path.basename(p, ".yaml")).join(", ")}`
     );
 
-    // Run content generation for each profile
     for (const profilePath of profiles) {
       const name = path.basename(profilePath, ".yaml");
+
+      // Check if content was already generated today
+      if (hasContentForDate(name, date)) {
+        const pending = getPendingContent(name, date);
+        if (pending.length > 0) {
+          log(`\n🔄 [${name}] ${pending.length} unpublished item(s) found. Resuming...`);
+          try {
+            const exitCode = await runCommand("src/index.ts", [
+              "content",
+              `--profile=${profilePath}`,
+              "--resume",
+            ]);
+            if (exitCode === 0) {
+              log(`✅ [${name}] Resume publishing completed.`);
+            } else {
+              log(`⚠️  [${name}] Resume exited with code ${exitCode}`);
+            }
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            log(`❌ [${name}] Resume failed: ${msg}`);
+          }
+        } else {
+          log(`\n✅ [${name}] All content for today already published. Skipping.`);
+        }
+        continue;
+      }
+
+      // Normal flow: generate + publish
       log(`\n🚀 [${name}] Starting content generation...`);
 
       try {
@@ -155,11 +201,37 @@ function main(): void {
   log("════════════════════════════════════════════════════");
 
   const profiles = discoverProfiles();
+  const date = today();
   log(`📅 Content cron: ${CONTENT_CRON} (Europe/Rome)`);
   log(
     `📋 Profiles: ${profiles.length > 0 ? profiles.map((p) => path.basename(p, ".yaml")).join(", ") : "none found"}`
   );
   log("");
+
+  // Expire old content from previous days
+  const expired = expireOldContent(date);
+  if (expired > 0) {
+    log(`🧹 Expired ${expired} old content queue item(s).`);
+  }
+
+  // Check for unpublished content from today (resume after crash/restart)
+  for (const profilePath of profiles) {
+    const name = path.basename(profilePath, ".yaml");
+    if (hasContentForDate(name, date)) {
+      const pending = getPendingContent(name, date);
+      if (pending.length > 0) {
+        log(`🔄 [${name}] Found ${pending.length} unpublished item(s) from today. Resuming...`);
+        runCommand("src/index.ts", ["content", `--profile=${profilePath}`, "--resume"])
+          .then((code) => {
+            if (code === 0) log(`✅ [${name}] Resume publishing completed.`);
+            else log(`⚠️  [${name}] Resume exited with code ${code}`);
+          })
+          .catch((err) => log(`❌ [${name}] Resume failed: ${err}`));
+      } else {
+        log(`✅ [${name}] All content for today already published.`);
+      }
+    }
+  }
 
   // Validate cron
   if (!cron.validate(CONTENT_CRON)) {

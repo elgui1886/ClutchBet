@@ -2,6 +2,11 @@ import "dotenv/config";
 import { CustomFile } from "telegram/client/uploads";
 import { createTelegramClient, resolvePeer } from "../../shared/telegram-utils.js";
 import { addBets, profileSlugFromPath, type TrackedBet } from "../../shared/bet-tracker.js";
+import {
+  saveContentItems,
+  markContentPublished,
+  contentItemId,
+} from "../../shared/content-store.js";
 import type { ContentStateType, ContentItem } from "../state.js";
 
 const MAX_CAPTION = 1024;
@@ -47,6 +52,11 @@ export async function publisherNode(
     return a.publishTime.localeCompare(b.publishTime);
   });
 
+  // Persist to DB before publishing (survives restarts)
+  const today = state.date || new Date().toISOString().split("T")[0];
+  saveContentItems(sorted, profileSlug, today);
+  console.log(`💾 ${sorted.length} item(s) saved to content store`);
+
   console.log(`\n📤 Publishing to: ${publishChannel}`);
   console.log(`📅 Schedule:\n`);
   for (const item of sorted) {
@@ -86,6 +96,7 @@ export async function publisherNode(
         }
 
         item.published = true;
+        markContentPublished(contentItemId(today, profileSlug, item.formatSlug));
         results.push(`✅ ${item.formatName}: published at ${item.publishTime ?? "now"}${item.imageBase64 ? " (with image)" : ""}`);
         console.log(`  ✅ ${item.formatName} published${item.imageBase64 ? " (with image)" : ""}\n`);
 

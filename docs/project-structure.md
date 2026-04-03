@@ -15,6 +15,7 @@ ClutchBet/
 │   │   ├── telegram-utils.ts          # resolvePeer(), createTelegramClient()
 │   │   ├── llm-utils.ts              # loadPrompt()
 │   │   ├── bet-tracker.ts            # Bet tracking store (SQLite — data/clutchbet.db)
+│   │   ├── content-store.ts          # Content publish store (SQLite — persistent state)
 │   │   └── content-history.ts        # Topic dedup for educational formats (Pillola, ecc.)
 │   ├── generation/
 │   │   ├── state.ts                   # WorkflowState
@@ -101,6 +102,18 @@ Shared Telegram infrastructure used by both workflows:
 Bet tracking store backed by SQLite (`data/clutchbet.db`). Uses `better-sqlite3` for synchronous, high-performance queries. Every bet is associated with a **profile slug** (e.g. `"il-capitano"`) to support multi-profile operation.
 
 Used by the content-generator publisher (to save bets) and check-results/watch-results (to resolve bets and generate recaps).
+
+### `content-store.ts`
+
+Store di pubblicazione persistente su SQLite (`data/clutchbet.db`, tabella `content_queue`). Salva i contenuti generati su disco prima della pubblicazione, così sopravvivono a crash o restart.
+
+Ogni contenuto ha uno stato: `pending` → `published` oppure `expired` (se appartiene a un giorno precedente).
+
+- `saveContentItems(items, profile, date)` — salva i contenuti generati (skip duplicati)
+- `getPendingContent(profile, date)` — recupera i contenuti non ancora pubblicati per un profilo/data
+- `hasContentForDate(profile, date)` — controlla se i contenuti sono già stati generati per oggi
+- `markContentPublished(id)` — segna un contenuto come pubblicato
+- `expireOldContent(today)` — scade i contenuti pending dei giorni precedenti (non verranno mai ripubblicati)
 
 - `profileSlugFromPath(path)` — extract profile slug from YAML path (e.g. `"config/profiles/il-capitano.yaml"` → `"il-capitano"`)
 - `addBets(bets)` — insert new bets (skips duplicates by ID)

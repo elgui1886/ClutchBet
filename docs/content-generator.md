@@ -79,7 +79,7 @@ Il workflow esegue nell'ordine:
    - `s` = approva
    - `n` = rifiuta
    - `e` = modifica (incolla testo corretto)
-5. **Publisher** — Pubblica i post approvati su Telegram **rispettando gli orari di pubblicazione** definiti nel profilo. Se l'orario non è ancora arrivato, il processo attende. Le scommesse contenute nei post vengono salvate nel database SQLite (`data/clutchbet.db`) per il tracking
+5. **Publisher** — Salva i post nella **coda persistente** (`content_queue` in SQLite), poi li pubblica su Telegram **rispettando gli orari di pubblicazione** definiti nel profilo. Se l'orario non è ancora arrivato, il processo attende. Ogni post pubblicato viene marcato nella coda, così in caso di crash/restart i post rimanenti vengono ripubblicati automaticamente. Le scommesse contenute nei post vengono salvate nel database SQLite (`data/clutchbet.db`) per il tracking
 
 ### Verificare i risultati delle scommesse
 
@@ -155,9 +155,27 @@ Per ripartire da zero (svuota DB + content-history):
 npm run reset
 ```
 
+## Ripresa dopo crash/restart
+
+I contenuti generati vengono salvati in una **coda persistente** su SQLite (`content_queue`) prima della pubblicazione. Questo garantisce che un crash o restart non perda i post del pomeriggio.
+
+```bash
+# Riprende la pubblicazione dei post non ancora inviati per oggi
+npm run content -- --profile=config/profiles/il-capitano.yaml --resume
+```
+
+Il flag `--resume`:
+- Legge dalla coda i contenuti `pending` per il profilo e la data corrente
+- Pubblica solo quelli non ancora inviati, rispettando gli orari
+- Se tutto è già pubblicato, termina immediatamente
+- **Non rigenera** i contenuti — usa quelli già salvati
+
+Il **daemon** (`npm run daemon`) gestisce automaticamente il resume all'avvio e nel cron giornaliero. I contenuti dei giorni precedenti vengono marcati come `expired` e non verranno mai ripubblicati.
+
 ## Note operative
 
 - **Orari di pubblicazione**: il publisher attende automaticamente l'orario definito nel profilo per ogni rubrica. Lanciare `npm run content` con anticipo
+- **Restart sicuri**: `pm2 restart clutchbet` riprende automaticamente la pubblicazione dei post rimasti in coda
 - **Senza API-Football**: il sistema funziona in modalità mock con partite e quote fittizie. Utile per test e sviluppo
 - **Free tier API-Football**: 100 richieste/giorno, sufficiente per uso singolo canale
 - **Modifiche al profilo**: modificare direttamente il file YAML in `config/profiles/`. Non serve rieseguire il parse

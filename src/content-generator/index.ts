@@ -3,7 +3,13 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { parse as parseYaml } from "yaml";
 import { buildContentGraph } from "./graph.js";
-import type { ProfileConfig, ContentItem } from "./state.js";
+import { profileSlugFromPath } from "../shared/bet-tracker.js";
+import {
+  getPendingContent,
+  expireOldContent,
+} from "../shared/content-store.js";
+import { publisherNode } from "./nodes/publisher.js";
+import type { ProfileConfig, ContentItem, ContentStateType } from "./state.js";
 
 function loadProfile(profilePath: string): ProfileConfig {
   const resolved = path.resolve(profilePath);
@@ -19,8 +25,6 @@ function loadProfile(profilePath: string): ProfileConfig {
 }
 
 export async function main() {
-  console.log("🚀 Starting content-generator workflow...\n");
-
   // Profile path from CLI: --profile=config/profiles/il-capitano.yaml
   const cliProfileArg = process.argv.find((a) => a.startsWith("--profile="));
   const profilePath = cliProfileArg?.split("=")[1];
@@ -30,9 +34,50 @@ export async function main() {
     process.exit(1);
   }
 
-  console.log(`📄 Profile: ${profilePath}`);
   const profile = loadProfile(profilePath);
   const cfg = profile.config ?? {};
+  const today = new Date().toISOString().split("T")[0];
+  const profileSlug = profileSlugFromPath(profilePath);
+  const isResume = process.argv.includes("--resume");
+
+  // Expire content from previous days on every run
+  expireOldContent(today);
+
+  // ── Resume mode: publish pending items from today's queue ──
+  if (isResume) {
+    console.log("🔄 Resume mode: checking for unpublished content...\n");
+
+    const pending = getPendingContent(profileSlug, today);
+    if (pending.length === 0) {
+      console.log("✅ No pending content to publish. Everything is up to date.");
+      return;
+    }
+
+    console.log(`📤 Found ${pending.length} unpublished item(s) for today. Resuming...\n`);
+
+    await publisherNode({
+      contentItems: pending,
+      publishChannel: cfg.publishChannel ?? "",
+      reviewBeforePublish: false,
+      profilePath,
+      timezone: cfg.timezone ?? "Europe/Rome",
+      profile,
+      leagueId: cfg.league?.id ?? 135,
+      leagueSeason: cfg.league?.season ?? 2025,
+      date: today,
+      fixtures: [],
+      scheduledFormats: [],
+      publishResult: "",
+    } as ContentStateType);
+
+    console.log("\n✅ Resume publishing complete.");
+    return;
+  }
+
+  // ── Normal mode: full generation pipeline ──────────────────
+  console.log("🚀 Starting content-generator workflow...\n");
+
+  console.log(`📄 Profile: ${profilePath}`);
 
   console.log(`👤 Loaded: ${profile.profile.name} — "${profile.profile.claim}"`);
   console.log(`📋 Formats: ${profile.formats.map((f) => f.name).join(", ")}\n`);

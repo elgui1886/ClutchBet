@@ -15,7 +15,10 @@ Il daemon (`npm run daemon`) è un processo Node.js che resta attivo 24/7 e orch
          │  All'avvio:
          │  1. Legge tutti i profili da config/profiles/*.yaml
          │  2. Registra un cron job giornaliero (default: 08:00)
-         │  3. Resta in attesa
+         │  3. Controlla se ci sono post non pubblicati da oggi    │
+         │     → Se sì: riprende la pubblicazione (resume)        │
+         │     → Scade i contenuti dei giorni precedenti          │
+         │  4. Resta in attesa                                    │
          │
          ▼
 ┌─────────────────────────────────────────────────────────────────┐
@@ -23,9 +26,15 @@ Il daemon (`npm run daemon`) è un processo Node.js che resta attivo 24/7 e orch
 │                                                                 │
 │  Per ogni profilo (es. il-capitano.yaml):                       │
 │                                                                 │
+│    0. CHECK: contenuti già generati oggi?                       │
+│       → Sì, tutti pubblicati: skip                              │
+│       → Sì, ma alcuni pending: resume (pubblica solo mancanti) │
+│       → No: generazione normale (vedi sotto)                    │
+│                                                                 │
 │    1. CONTENT GENERATION                                        │
 │       Scheduler → Data Fetcher → Content Writer → Publisher     │
-│       I post vengono pubblicati su Telegram                     │
+│       I post vengono salvati nel DB (content_queue) PRIMA       │
+│       della pubblicazione → sopravvivono a crash/restart        │
 │       Le scommesse vengono salvate nel DB SQLite                │
 │                                                                 │
 │    2. RESULTS WATCHER (avviato 5 min dopo)                      │
@@ -103,10 +112,14 @@ cd ClutchBet
 npm install
 ```
 
-> **Nota su Puppeteer**: su server Linux potrebbe servire installare le dipendenze di Chrome:
+> **Nota su Puppeteer**: su server Linux servono le librerie di sistema per Chrome headless.
+> Senza queste, Puppeteer fallirà con errori tipo `libnspr4.so: cannot open shared object file`.
 > ```bash
-> sudo apt install -y chromium-browser
-> # oppure lascia che Puppeteer scarichi Chrome automaticamente
+> sudo apt update && sudo apt install -y \
+>   libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
+>   libcups2 libdrm2 libxkbcommon0 libxcomposite1 \
+>   libxdamage1 libxrandr2 libgbm1 libpango-1.0-0 \
+>   libcairo2 libasound2 libxshmfence1 fonts-liberation
 > ```
 
 ### 6. Configura le variabili d'ambiente
@@ -206,6 +219,20 @@ Da questo momento, se il server si riavvia, pm2 rilancia automaticamente il daem
 | `pm2 delete clutchbet` | Rimuove il daemon da pm2 |
 | `pm2 status` | Stato di tutti i processi |
 | `pm2 monit` | Monitoring interattivo (CPU, RAM, log) |
+
+### Restart e persistenza
+
+**Il restart è sicuro**. I contenuti generati vengono salvati nel database (`content_queue`) prima della pubblicazione. Al riavvio:
+
+- I post già pubblicati non vengono ripubblicati
+- I post in attesa (es. schedulati per il pomeriggio) vengono ripresi automaticamente
+- I contenuti dei giorni precedenti vengono scaduti (non verranno mai ripubblicati)
+- Le scommesse tracciate (tabella `bets`) non vengono perse — il watcher le rischedula
+
+```bash
+# Restart sicuro — riprende da dove era rimasto
+pm2 restart clutchbet
+```
 
 ### Aggiornare il codice
 
