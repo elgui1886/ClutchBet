@@ -73,6 +73,17 @@ export interface ProfileConfig {
     responsible_gambling_reminders: string[];
     post_loss_template: string;
   };
+  /** Publishing & league configuration (per-profile) */
+  config?: {
+    publishChannel?: string;
+    reviewBeforePublish?: boolean;
+    timezone?: string;
+    league?: {
+      id?: number;
+      season?: number;
+      country?: string;
+    };
+  };
 }
 
 /** A bet selection extracted from generated content */
@@ -146,6 +157,11 @@ export const ContentState = Annotation.Root({
   reviewBeforePublish: Annotation<boolean>({
     reducer: (_prev, next) => next,
     default: () => false,
+  }),
+  /** IANA timezone for publish scheduling (e.g. "Europe/Rome") */
+  timezone: Annotation<string>({
+    reducer: (_prev, next) => next,
+    default: () => "Europe/Rome",
   }),
   /** Overall publish result summary */
   publishResult: Annotation<string>({

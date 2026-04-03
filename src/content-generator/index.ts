@@ -5,22 +5,6 @@ import { parse as parseYaml } from "yaml";
 import { buildContentGraph } from "./graph.js";
 import type { ProfileConfig, ContentItem } from "./state.js";
 
-interface ContentConfig {
-  profile: string;
-  publishChannel?: string;
-  reviewBeforePublish?: boolean;
-  league?: {
-    id?: number;
-    season?: number;
-  };
-}
-
-function loadConfig(): ContentConfig {
-  const configPath = path.resolve("config", "content.yaml");
-  const raw = fs.readFileSync(configPath, "utf-8");
-  return parseYaml(raw) as ContentConfig;
-}
-
 function loadProfile(profilePath: string): ProfileConfig {
   const resolved = path.resolve(profilePath);
   if (!fs.existsSync(resolved)) {
@@ -37,21 +21,24 @@ function loadProfile(profilePath: string): ProfileConfig {
 export async function main() {
   console.log("🚀 Starting content-generator workflow...\n");
 
-  const config = loadConfig();
-
-  // Allow CLI override: npm run content -- --profile config/profiles/other.yaml
+  // Profile path from CLI: --profile=config/profiles/il-capitano.yaml
   const cliProfileArg = process.argv.find((a) => a.startsWith("--profile="));
-  const profilePath = cliProfileArg
-    ? cliProfileArg.split("=")[1]
-    : config.profile;
+  const profilePath = cliProfileArg?.split("=")[1];
+
+  if (!profilePath) {
+    console.error("❌ Usage: npm run content -- --profile=config/profiles/<name>.yaml");
+    process.exit(1);
+  }
 
   console.log(`📄 Profile: ${profilePath}`);
   const profile = loadProfile(profilePath);
+  const cfg = profile.config ?? {};
+
   console.log(`👤 Loaded: ${profile.profile.name} — "${profile.profile.claim}"`);
   console.log(`📋 Formats: ${profile.formats.map((f) => f.name).join(", ")}\n`);
 
-  if (config.publishChannel) {
-    console.log(`📡 Publish channel: ${config.publishChannel}`);
+  if (cfg.publishChannel) {
+    console.log(`📡 Publish channel: ${cfg.publishChannel}`);
   } else {
     console.log("⚠️  No publish channel configured. Content will be saved locally only.");
   }
@@ -62,11 +49,12 @@ export async function main() {
   const result = await graph.invoke({
     profilePath,
     profile,
-    publishChannel: config.publishChannel ?? "",
-    leagueId: config.league?.id ?? 135,
-    leagueSeason: config.league?.season ?? 2025,
+    publishChannel: cfg.publishChannel ?? "",
+    leagueId: cfg.league?.id ?? 135,
+    leagueSeason: cfg.league?.season ?? 2025,
     date: new Date().toISOString().split("T")[0],
-    reviewBeforePublish: config.reviewBeforePublish ?? false,
+    reviewBeforePublish: cfg.reviewBeforePublish ?? false,
+    timezone: cfg.timezone ?? "Europe/Rome",
   });
 
   if (!result.contentItems || result.contentItems.length === 0) {

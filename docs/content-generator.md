@@ -46,24 +46,28 @@ Questo comando:
 
 > **Nota**: questo va fatto una sola volta per profilo. Il YAML risultante può essere modificato manualmente.
 
-### 3. Configurare `config/content.yaml`
+### 3. Configurare il profilo YAML
+
+Dopo il parse, verifica e personalizza il file `config/profiles/<nome>.yaml`. In fondo al file troverai la sezione `config:` con le impostazioni di pubblicazione:
 
 ```yaml
-profile: "config/profiles/il-capitano.yaml"   # path al profilo YAML
-publishChannel: "https://t.me/nomedelcanale"   # canale Telegram
-
-league:
-  id: 135          # Serie A (vedi documentazione API-Football per altri campionati)
-  season: 2025
-  country: "Italy"
+config:
+  publishChannel: "https://t.me/nomedelcanale"   # canale Telegram
+  reviewBeforePublish: false                      # true = approvazione manuale per ogni post
+  league:
+    id: 135          # Serie A (vedi documentazione API-Football per altri campionati)
+    season: 2025
+    country: "Italy"
 ```
+
+Ogni profilo è autosufficiente: contiene tono di voce, rubriche, scheduling, E la configurazione di pubblicazione. Non serve un file di configurazione separato.
 
 ## Flusso giornaliero
 
 ### Generare i contenuti del giorno
 
 ```bash
-npm run content
+npm run content -- --profile=config/profiles/il-capitano.yaml
 ```
 
 Il workflow esegue nell'ordine:
@@ -77,16 +81,10 @@ Il workflow esegue nell'ordine:
    - `e` = modifica (incolla testo corretto)
 5. **Publisher** — Pubblica i post approvati su Telegram **rispettando gli orari di pubblicazione** definiti nel profilo. Se l'orario non è ancora arrivato, il processo attende. Le scommesse contenute nei post vengono salvate nel database SQLite (`data/clutchbet.db`) per il tracking
 
-**Override profilo:**
-
-```bash
-npm run content -- --profile=config/profiles/altro-profilo.yaml
-```
-
 ### Verificare i risultati delle scommesse
 
 ```bash
-npm run check-results
+npm run check-results -- --profile=config/profiles/il-capitano.yaml
 ```
 
 Questo comando:
@@ -96,14 +94,14 @@ Questo comando:
 3. Valuta ogni scommessa: 1X2, Doppia Chance, Over/Under, Goal/NoGoal, Multigol
 4. Genera un post di recap tramite LLM, usando il tono del profilo e i principi di gestione delle perdite
 5. Mostra il recap per approvazione umana
-6. Pubblica su Telegram e salva una copia in `output/recaps/`
+6. Pubblica su Telegram
 
 > Va lanciato dopo che le partite si sono concluse. Può essere eseguito più volte — elabora solo le scommesse non ancora verificate.
 
 ### Monitoraggio automatico dei risultati
 
 ```bash
-npm run watch-results
+npm run watch-results -- --profile=config/profiles/il-capitano.yaml
 ```
 
 Alternativa a `check-results` per un uso hands-off:
@@ -122,20 +120,20 @@ Alternativa a `check-results` per un uso hands-off:
 │                                                             │
 │  1. npm run setup-telegram         → sessione Telegram      │
 │  2. npm run parse-profile -- X.md  → config/profiles/X.yaml │
-│  3. Configurare config/content.yaml                         │
+│  3. Configurare config: nel profilo YAML                     │
 └─────────────────────────────────────────────────────────────┘
            │
            ▼
 ┌─────────────────────────────────────────────────────────────┐
 │  QUOTIDIANO                                                 │
 │                                                             │
-│  4. npm run content                → genera + pubblica post │
+│  4. npm run content --profile=X    → genera + pubblica post │
 │     (mattina/pomeriggio, prima degli orari di pubblicazione)│
 │                                                             │
-│  5a. npm run check-results         → verifica + recap       │
+│  5a. npm run check-results --profile=X  → verifica + recap  │
 │      (sera, dopo le partite — one-shot)                     │
 │                                                             │
-│  5b. npm run watch-results         → verifica + recap       │
+│  5b. npm run watch-results --profile=X  → verifica + recap  │
 │      (alternativa: daemon con polling automatico)            │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -145,10 +143,17 @@ Alternativa a `check-results` per un uso hands-off:
 
 | Percorso | Contenuto |
 |---|---|
-| `config/profiles/<nome>.yaml` | Profilo editoriale strutturato |
+| `config/profiles/<nome>.yaml` | Profilo editoriale strutturato + config pubblicazione |
 | `data/clutchbet.db` | Database SQLite (scommesse, risultati, analytics) |
-| `output/content/<rubrica>_<data>.md` | Post generati (backup locale) |
-| `output/recaps/recap_<data>.md` | Post di recap pubblicati |
+| `data/content-history/<profilo>_<format>.json` | Storico topic per deduplicazione |
+
+## Reset
+
+Per ripartire da zero (svuota DB + content-history):
+
+```bash
+npm run reset
+```
 
 ## Note operative
 

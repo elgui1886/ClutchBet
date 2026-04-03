@@ -14,7 +14,7 @@ const WATCHER_DELAY_MS = 5 * 60 * 1000; // 5 minutes
 
 // ── State ────────────────────────────────────────────────────
 
-let activeWatcher: ChildProcess | null = null;
+let activeWatchers: ChildProcess[] = [];
 let isRunning = false;
 
 // ── Logging ──────────────────────────────────────────────────
@@ -60,31 +60,34 @@ function runCommand(script: string, args: string[] = []): Promise<number> {
   });
 }
 
-function startWatcher(): void {
-  // Kill existing watcher if still running
-  if (activeWatcher && !activeWatcher.killed) {
-    log("🔄 Stopping previous watcher...");
-    activeWatcher.kill("SIGTERM");
-    activeWatcher = null;
-  }
+function startWatcher(profilePath: string): void {
+  const name = path.basename(profilePath, ".yaml");
+  log(`👀 [${name}] Starting results watcher...`);
 
-  log("👀 Starting results watcher...");
-
-  activeWatcher = spawn("npx", ["tsx", "src/watch-results.ts"], {
+  const watcher = spawn("npx", ["tsx", "src/watch-results.ts", `--profile=${profilePath}`], {
     stdio: "inherit",
     cwd: process.cwd(),
     shell: true,
   });
 
-  activeWatcher.on("exit", (code) => {
-    log(`👀 Watcher exited (code: ${code})`);
-    activeWatcher = null;
+  watcher.on("exit", (code) => {
+    log(`👀 [${name}] Watcher exited (code: ${code})`);
+    activeWatchers = activeWatchers.filter((w) => w !== watcher);
   });
 
-  activeWatcher.on("error", (err) => {
-    log(`❌ Watcher error: ${err.message}`);
-    activeWatcher = null;
+  watcher.on("error", (err) => {
+    log(`❌ [${name}] Watcher error: ${err.message}`);
+    activeWatchers = activeWatchers.filter((w) => w !== watcher);
   });
+
+  activeWatchers.push(watcher);
+}
+
+function stopAllWatchers(): void {
+  for (const w of activeWatchers) {
+    if (!w.killed) w.kill("SIGTERM");
+  }
+  activeWatchers = [];
 }
 
 // ── Daily orchestration ──────────────────────────────────────
@@ -130,10 +133,15 @@ async function dailyRun(): Promise<void> {
       }
     }
 
-    // Start results watcher after a short delay
+    // Start results watchers after a short delay (one per profile)
     // (gives time for bets to be saved to DB)
-    log(`\n⏳ Starting results watcher in ${WATCHER_DELAY_MS / 60_000} minutes...`);
-    setTimeout(() => startWatcher(), WATCHER_DELAY_MS);
+    log(`\n⏳ Starting results watchers in ${WATCHER_DELAY_MS / 60_000} minutes...`);
+    setTimeout(() => {
+      stopAllWatchers();
+      for (const profilePath of profiles) {
+        startWatcher(profilePath);
+      }
+    }, WATCHER_DELAY_MS);
   } finally {
     isRunning = false;
   }
@@ -185,9 +193,7 @@ function main(): void {
   // Graceful shutdown
   const shutdown = () => {
     log("\n🛑 Shutting down daemon...");
-    if (activeWatcher && !activeWatcher.killed) {
-      activeWatcher.kill("SIGTERM");
-    }
+    stopAllWatchers();
     process.exit(0);
   };
 

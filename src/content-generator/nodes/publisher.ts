@@ -14,8 +14,9 @@ const MAX_CAPTION = 1024;
 export async function publisherNode(
   state: ContentStateType
 ): Promise<Partial<ContentStateType>> {
-  const { contentItems, publishChannel, reviewBeforePublish, profilePath } = state;
+  const { contentItems, publishChannel, reviewBeforePublish, profilePath, timezone } = state;
   const profileSlug = profileSlugFromPath(profilePath);
+  const tz = timezone || "Europe/Rome";
 
   // When review is disabled, treat all items as approved
   const approved = reviewBeforePublish
@@ -62,7 +63,7 @@ export async function publisherNode(
     for (const item of sorted) {
       // Wait for the scheduled time if set
       if (item.publishTime) {
-        await waitUntil(item.publishTime, item.formatName);
+        await waitUntil(item.publishTime, item.formatName, tz);
       }
 
       try {
@@ -117,30 +118,46 @@ export async function publisherNode(
 }
 
 /**
- * Waits until the specified time (HH:MM) today.
+ * Returns the current hours and minutes in the given IANA timezone.
+ */
+function nowInTimezone(tz: string): { hours: number; minutes: number } {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: tz,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+
+  const hours = Number(parts.find((p) => p.type === "hour")!.value);
+  const minutes = Number(parts.find((p) => p.type === "minute")!.value);
+  return { hours, minutes };
+}
+
+/**
+ * Waits until the specified time (HH:MM) in the given timezone.
  * If the time has already passed, publishes immediately.
  */
-async function waitUntil(timeStr: string, formatName: string): Promise<void> {
-  const [hours, minutes] = timeStr.split(":").map(Number);
-  const now = new Date();
-  const target = new Date();
-  target.setHours(hours, minutes, 0, 0);
+async function waitUntil(timeStr: string, formatName: string, tz: string): Promise<void> {
+  const [targetH, targetM] = timeStr.split(":").map(Number);
+  const { hours: nowH, minutes: nowM } = nowInTimezone(tz);
 
-  const diffMs = target.getTime() - now.getTime();
+  const targetMinutes = targetH * 60 + targetM;
+  const nowMinutes = nowH * 60 + nowM;
+  const diffMin = targetMinutes - nowMinutes;
 
-  if (diffMs <= 0) {
-    console.log(`  ⏰ ${formatName}: scheduled for ${timeStr}, already passed — publishing now`);
+  if (diffMin <= 0) {
+    console.log(`  ⏰ ${formatName}: scheduled for ${timeStr} (${tz}), already passed — publishing now`);
     return;
   }
 
-  const diffMin = Math.round(diffMs / 60000);
+  const diffMs = diffMin * 60 * 1000;
   const diffH = Math.floor(diffMin / 60);
   const remMin = diffMin % 60;
   const waitLabel = diffH > 0 ? `${diffH}h ${remMin}m` : `${remMin}m`;
 
-  console.log(`  ⏳ ${formatName}: waiting until ${timeStr} (${waitLabel} from now)...`);
+  console.log(`  ⏳ ${formatName}: waiting until ${timeStr} (${tz}, ${waitLabel} from now)...`);
   await new Promise((resolve) => setTimeout(resolve, diffMs));
-  console.log(`  ⏰ ${formatName}: it's ${timeStr} — publishing now`);
+  console.log(`  ⏰ ${formatName}: it's ${timeStr} (${tz}) — publishing now`);
 }
 
 /**

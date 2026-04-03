@@ -379,5 +379,15 @@ losses:
     La nostra {selection} non è entrata. {reasoning}.
     
     📊 Settimana: {total_bets} giocate | {wins} ✅ {losses} ❌ | {profit_loss}
+
+# ── Publishing & League Configuration ─────────────────────────
+config:
+  publishChannel: "https://t.me/maremmabet"
+  reviewBeforePublish: false
+  timezone: "Europe/Rome"
+  league:
+    id: 135          # Serie A
+    season: 2025
+    country: "Italy"
     
     Si va avanti. Chi gioca con metodo non si spaventa per una serata no.

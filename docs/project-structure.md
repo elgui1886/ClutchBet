@@ -7,12 +7,15 @@ ClutchBet/
 │   ├── list-channels.ts               # Utility: list Telegram channels
 │   ├── setup-telegram.ts              # One-time Telegram auth
 │   ├── parse-profile.ts               # One-off: MD profile → YAML config
-│   ├── check-results.ts               # Check bet results + generate recap
-│   ├── watch-results.ts               # Daemon: poll for results + auto-recap
+│   ├── check-results.ts               # Check bet results + generate recap (--profile=...)
+│   ├── watch-results.ts               # Daemon: poll for results + auto-recap (--profile=...)
+│   ├── daemon.ts                      # Long-running daemon (cron + watchers per profile)
+│   ├── reset.ts                       # Reset: pulisce DB + content-history
 │   ├── shared/
 │   │   ├── telegram-utils.ts          # resolvePeer(), createTelegramClient()
 │   │   ├── llm-utils.ts              # loadPrompt()
-│   │   └── bet-tracker.ts            # Bet tracking store (SQLite — data/clutchbet.db)
+│   │   ├── bet-tracker.ts            # Bet tracking store (SQLite — data/clutchbet.db)
+│   │   └── content-history.ts        # Topic dedup for educational formats (Pillola, ecc.)
 │   ├── generation/
 │   │   ├── state.ts                   # WorkflowState
 │   │   ├── graph.ts                   # scraper → llm_generator → publisher
@@ -35,7 +38,7 @@ ClutchBet/
 │   └── content-generator/
 │       ├── state.ts                   # ContentState (profile, fixtures, odds, bets)
 │       ├── graph.ts                   # scheduler → data_fetcher → content_writer → reviewer → publisher
-│       ├── index.ts                   # Entry point (loads content.yaml + profile)
+│       ├── index.ts                   # Entry point (loads profile YAML)
 │       └── nodes/
 │           ├── scheduler.ts           # Decide which formats to generate
 │           ├── data-fetcher.ts        # Fetch fixtures + odds from API-Football
@@ -45,9 +48,8 @@ ClutchBet/
 ├── config/
 │   ├── channels.yaml                  # Generation: topic, channels, publish target
 │   ├── analysis.yaml                  # Analysis: channel, months
-│   ├── content.yaml                   # Content generator: profile, publish channel, league
 │   └── profiles/                      # Parsed YAML profiles (from parse-profile)
-│       └── il-capitano.yaml           # Example parsed profile
+│       └── il-capitano.yaml           # Profile + config (publishChannel, league, ecc.)
 ├── prompts/
 │   ├── telegram-filter.md             # Filter: Italian football + active event?
 │   ├── image-analysis.md              # Extract bets from slip images
@@ -60,16 +62,15 @@ ClutchBet/
 │   ├── bet-recap.md                   # Generate recap post after bet results
 │   └── results-update.md             # LLM: generate results update post
 ├── data/                              # Runtime data (gitignored)
-│   └── clutchbet.db                   # SQLite database (bet tracking, analytics)
+│   ├── clutchbet.db                   # SQLite database (bet tracking, analytics)
+│   └── content-history/               # Topic history per profile/format (JSON)
 ├── samples/                           # Reference samples (Release 1)
 │   ├── sample1/ ... sample4/
 ├── temp/                              # Downloaded images (gitignored)
 ├── output/                            # Generated outputs (gitignored)
 │   ├── analysis/                      # Channel analysis reports
 │   ├── post-analysis/                 # Comparative analysis across channels
-│   ├── profiles/                      # Editorial profiles (MD)
-│   ├── content/                       # Generated content posts (created at runtime)
-│   └── recaps/                        # Generated recap posts (created at runtime)
+│   └── profiles/                      # Editorial profiles (MD)
 ├── docs/
 │   ├── architecture.md
 │   ├── project-definition.md
@@ -111,6 +112,13 @@ Used by the content-generator publisher (to save bets) and check-results/watch-r
 - `getStatsForPeriod(start, end, profile)` — analytics for any date range, per profile (with breakdowns by format and selection type)
 - `getActiveSchedine(profile)` — active bet slips grouped by slip_id, per profile
 - `getSchedineForDate(date, profile)` — all bet slips for a date, per profile
+
+### `content-history.ts`
+
+Topic deduplication for educational/non-bet formats (Pillola, ecc.). Stores past topics as JSON files in `data/content-history/` to avoid repeating the same content.
+
+- `loadTopicHistory(profileSlug, formatSlug, limit?)` — load past topics for a profile+format
+- `saveTopicEntry(profileSlug, formatSlug, topic)` — save a new topic after generation
 
 ## CLI Dispatcher (`src/index.ts`)
 

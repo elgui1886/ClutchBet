@@ -18,6 +18,8 @@ import {
 import { createTelegramClient, resolvePeer } from "./shared/telegram-utils.js";
 import type { ProfileConfig } from "./content-generator/state.js";
 
+type ProfileCfg = NonNullable<ProfileConfig["config"]>;
+
 // ── Constants ────────────────────────────────────────────────
 
 const API_FOOTBALL_BASE = "https://v3.football.api-sports.io";
@@ -29,13 +31,6 @@ const MAX_RETRIES = 3;
 const SCAN_INTERVAL_MS = 60 * 60 * 1000;          // 1 hour — rescan for new bets
 
 // ── Types ────────────────────────────────────────────────────
-
-interface ContentConfig {
-  profile: string;
-  publishChannel?: string;
-  reviewBeforePublish?: boolean;
-  league?: { id?: number; season?: number };
-}
 
 interface MatchResult {
   fixtureId: number;
@@ -77,11 +72,25 @@ function getMatchKey(bet: TrackedBet): string {
   return `${bet.date}_${normalize(bet.homeTeam)}_${normalize(bet.awayTeam)}`;
 }
 
-function getEstimatedEndTime(bet: TrackedBet): Date {
-  const [hours, minutes] = bet.kickoff.split(":").map(Number);
-  const d = new Date(
-    `${bet.date}T${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00`
+/**
+ * Creates a Date object from a date string and time string,
+ * interpreting the time in the given IANA timezone.
+ */
+function dateInTimezone(dateStr: string, timeStr: string, tz: string): Date {
+  const [hours, minutes] = timeStr.split(":").map(Number);
+  // Build a date in UTC, then adjust for the timezone offset
+  const naive = new Date(
+    `${dateStr}T${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00`
   );
+  // Get what the local time would be for that timezone at the naive UTC date
+  const utcStr = naive.toLocaleString("en-US", { timeZone: "UTC" });
+  const tzStr = naive.toLocaleString("en-US", { timeZone: tz });
+  const offsetMs = new Date(utcStr).getTime() - new Date(tzStr).getTime();
+  return new Date(naive.getTime() + offsetMs);
+}
+
+function getEstimatedEndTime(bet: TrackedBet, tz: string): Date {
+  const d = dateInTimezone(bet.date, bet.kickoff, tz);
   return new Date(d.getTime() + MATCH_DURATION_MS);
 }
 
@@ -107,21 +116,29 @@ async function enqueueCheck(fn: () => Promise<void>): Promise<void> {
 async function main() {
   console.log("👀 Starting results watcher...\n");
 
-  const config = loadContentConfig();
-  const profile = loadProfile(config.profile);
-  const profileSlug = profileSlugFromPath(config.profile);
+  const cliProfileArg = process.argv.find((a) => a.startsWith("--profile="));
+  const profilePath = cliProfileArg?.split("=")[1];
+
+  if (!profilePath) {
+    console.error("❌ Usage: npm run watch-results -- --profile=config/profiles/<name>.yaml");
+    process.exit(1);
+  }
+
+  const profile = loadProfile(profilePath);
+  const profileSlug = profileSlugFromPath(profilePath);
+  const cfg = profile.config ?? {};
 
   console.log(`📄 Profile: ${profile.profile.name} (${profileSlug})`);
-  console.log(`📡 Publish channel: ${config.publishChannel ?? "none"}`);
-  console.log(`📝 Review before publish: ${config.reviewBeforePublish ?? false}\n`);
+  console.log(`📡 Publish channel: ${cfg.publishChannel ?? "none"}`);
+  console.log(`📝 Review before publish: ${cfg.reviewBeforePublish ?? false}\n`);
 
   // Initial scan & schedule
-  scanAndSchedule(config, profile, profileSlug);
+  scanAndSchedule(cfg, profile, profileSlug);
 
   // Periodic re-scan for new bets (published by npm run content meanwhile)
   const scanInterval = setInterval(() => {
     console.log(`\n🔄 [${now()}] Re-scanning for new pending bets...`);
-    scanAndSchedule(config, profile, profileSlug);
+    scanAndSchedule(cfg, profile, profileSlug);
   }, SCAN_INTERVAL_MS);
 
   console.log("⏳ Watcher is running. Press Ctrl+C to stop.\n");
@@ -129,7 +146,7 @@ async function main() {
 
 // ── Scheduling ───────────────────────────────────────────────
 
-function scanAndSchedule(config: ContentConfig, profile: ProfileConfig, profileSlug: string) {
+function scanAndSchedule(config: ProfileCfg, profile: ProfileConfig, profileSlug: string) {
   const pending = getPendingBets(profileSlug);
   if (pending.length === 0) {
     console.log("✅ No pending bets.");
@@ -146,10 +163,11 @@ function scanAndSchedule(config: ContentConfig, profile: ProfileConfig, profileS
   }
 
   let newScheduled = 0;
+  const tz = config.timezone ?? "Europe/Rome";
   for (const [key, bets] of matchGroups) {
     if (scheduledChecks.has(key)) continue;
 
-    const estimatedEnd = getEstimatedEndTime(bets[0]);
+    const estimatedEnd = getEstimatedEndTime(bets[0], tz);
     const delayMs = Math.max(0, estimatedEnd.getTime() - Date.now());
 
     const check: ScheduledCheck = {
@@ -185,7 +203,7 @@ function scanAndSchedule(config: ContentConfig, profile: ProfileConfig, profileS
 
 // ── Check execution ──────────────────────────────────────────
 
-async function runCheck(key: string, config: ContentConfig, profile: ProfileConfig) {
+async function runCheck(key: string, config: ProfileCfg, profile: ProfileConfig) {
   const check = scheduledChecks.get(key);
   if (!check) return;
 
@@ -249,7 +267,7 @@ async function runCheck(key: string, config: ContentConfig, profile: ProfileConf
 
 async function publishUpdate(
   resolved: TrackedBet[],
-  config: ContentConfig,
+  config: ProfileCfg,
   profile: ProfileConfig
 ) {
   const involvedSlipIds = new Set(resolved.map((b) => b.slipId));
@@ -311,7 +329,7 @@ async function publishUpdate(
 
 async function fetchResults(
   bets: TrackedBet[],
-  config: ContentConfig
+  config: ProfileCfg
 ): Promise<MatchResult[]> {
   const apiKey = process.env.FOOTBALL_API_KEY;
 
@@ -539,12 +557,6 @@ async function publishPost(text: string, channel: string): Promise<void> {
 }
 
 // ── Utilities ────────────────────────────────────────────────
-
-function loadContentConfig(): ContentConfig {
-  const configPath = path.resolve("config", "content.yaml");
-  const raw = fs.readFileSync(configPath, "utf-8");
-  return parseYaml(raw) as ContentConfig;
-}
 
 function loadProfile(profilePath: string): ProfileConfig {
   const resolved = path.resolve(profilePath);

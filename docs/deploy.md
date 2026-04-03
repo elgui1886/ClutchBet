@@ -132,14 +132,15 @@ FOOTBALL_API_KEY=tua_chiave_api_football
 # DAEMON_CONTENT_CRON=0 8 * * *
 ```
 
-### 7. Verifica che il profilo sia configurato
+### 7. Verifica che i profili siano configurati
 
 ```bash
 ls config/profiles/
 # Deve contenere almeno un file .yaml (es. il-capitano.yaml)
 
-cat config/content.yaml
-# Verifica: publishChannel, league, reviewBeforePublish: false
+# Verifica che il profilo abbia la sezione config:
+grep -A5 'config:' config/profiles/il-capitano.yaml
+# Deve mostrare: publishChannel, league, ecc.
 ```
 
 ### 8. Test manuale (opzionale)
@@ -148,10 +149,10 @@ Prima di attivare il daemon, puoi testare singolarmente:
 
 ```bash
 # Testa la generazione contenuti
-npm run content
+npm run content -- --profile=config/profiles/il-capitano.yaml
 
 # Testa il watcher
-npm run watch-results
+npm run watch-results -- --profile=config/profiles/il-capitano.yaml
 ```
 
 ### 9. Avvia il daemon con pm2
@@ -256,8 +257,9 @@ pm2 restart clutchbet
 1. Crea il profilo Markdown
 2. Parsalo: `npm run parse-profile -- output/profiles/nuovo-profilo.md`
 3. Il file YAML viene salvato in `config/profiles/nuovo-profilo.yaml`
-4. Riavvia il daemon: `pm2 restart clutchbet`
-5. Il daemon lo troverà automaticamente al prossimo ciclo
+4. Configura la sezione `config:` nel YAML (publishChannel, league, ecc.)
+5. Riavvia il daemon: `pm2 restart clutchbet`
+6. Il daemon lo troverà automaticamente al prossimo ciclo
 
 ### Timezone
 
@@ -268,8 +270,8 @@ Il cron usa il timezone `Europe/Rome` (hardcoded nel daemon). Le ore nel cron so
 ### Il daemon non posta
 
 1. Controlla i log: `pm2 logs clutchbet`
-2. Verifica che `reviewBeforePublish: false` in `config/content.yaml`
-3. Verifica che `publishChannel` sia configurato in `config/content.yaml`
+2. Verifica che `reviewBeforePublish: false` nella sezione `config:` del profilo YAML
+3. Verifica che `publishChannel` sia configurato nella sezione `config:` del profilo YAML
 4. Verifica che `FOOTBALL_API_KEY` sia nel `.env` (senza: usa dati fittizi)
 
 ### Puppeteer non funziona sul server
