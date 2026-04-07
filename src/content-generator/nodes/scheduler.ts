@@ -43,8 +43,12 @@ export async function schedulerNode(
   const noMatchFormats = scheduling.no_match_day.formats;
 
   // Add all match_day formats (will be filtered later if no fixtures)
+  // Skip formats that have a weekly/monthly/special frequency — those are
+  // handled exclusively by the special-triggers section above.
   for (const slug of matchDayFormats) {
     if (formatSlugs.has(slug) && !selected.includes(slug)) {
+      const fmt = formats.find((f) => f.slug === slug);
+      if (fmt && isSpecialFrequency(fmt.frequency)) continue;
       selected.push(slug);
     }
   }
@@ -52,6 +56,8 @@ export async function schedulerNode(
   // Also add no_match_day formats (always useful as fallback)
   for (const slug of noMatchFormats) {
     if (formatSlugs.has(slug) && !selected.includes(slug)) {
+      const fmt = formats.find((f) => f.slug === slug);
+      if (fmt && isSpecialFrequency(fmt.frequency)) continue;
       selected.push(slug);
     }
   }
@@ -76,6 +82,14 @@ export async function schedulerNode(
   console.log(`📋 Scheduled formats: ${selected.length > 0 ? selected.join(", ") : "(none)"}`);
 
   return { scheduledFormats: selected };
+}
+
+/**
+ * Returns true for frequencies that should only be scheduled via special triggers,
+ * not included in the daily match_day / no_match_day lists.
+ */
+function isSpecialFrequency(frequency: string): boolean {
+  return /^(weekly|monthly|big_match|derby)/.test(frequency);
 }
 
 /**

@@ -346,7 +346,6 @@ scheduling:
       - "cartellino-tattico"
       - "la-lavagna"
       - "pillola"
-      - "il-fischio-finale"
   no_match_day:
     max_posts: 2
     formats:
