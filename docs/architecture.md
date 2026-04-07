@@ -217,19 +217,9 @@ This approach keeps each LLM call within context window limits while still produ
 - **Output**: Same as check-results (recap post → Telegram)
 - **Retry**: Max 3 retries, 30-minute delay between retries on failure
 
-## MVP Roadmap
-
-### Release 1 — LLM Node (Generation)
-Posts hardcoded in sample folders. LLM agent generates a new post in similarity. Output saved to `output/`.
-
-### Release 2 ✅ — Scraper Node (Generation)
-Replace hardcoded posts with a Telegram scraper. Given N channels and a topic, fetch and filter relevant posts.
-
-### Release 3 ✅ — Publisher Node (Generation)
-Generated post published to a configured Telegram channel via GramJS.
-
-### Release 4 ✅ — Channel Analysis Workflow
-New one-off workflow: scrape a channel's history, analyze with GPT-4o (chunked), produce a Markdown analysis document.
-
-### Release 5 ✅ — Content Generator Workflow
-Profile-driven content generation: parse MD profile → YAML, schedule editorial formats, fetch real fixtures + odds from API-Football, generate posts with LLM following profile tone, human-in-the-loop review, timed publishing to Telegram, bet tracking (SQLite) with result checking and recap generation.
+### Daemon
+- **Trigger**: `npm run daemon` or `pm2 start ecosystem.config.cjs`
+- **Frequency**: Continuous — cron giornaliero alle 08:00 (configurabile via `DAEMON_CONTENT_CRON`)
+- **Behavior**: Per ogni profilo in `config/profiles/`, esegue content generation + avvia results watcher
+- **Resume**: Al restart, riprende la pubblicazione dei post rimasti in coda (`content_queue`)
+- **Config**: Timezone `Europe/Rome` (hardcoded)

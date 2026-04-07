@@ -6,8 +6,7 @@ Guida pratica per configurare e utilizzare il workflow di generazione automatica
 
 1. **Node.js** ≥ 18
 2. **Dipendenze installate**: `npm install`
-3. **Build compilata**: `npm run build`
-4. **Variabili d'ambiente** nel file `.env`:
+3. **Variabili d'ambiente** nel file `.env`:
 
 | Variabile | Obbligatoria | Descrizione |
 |---|---|---|
