@@ -2,63 +2,70 @@
 
 Guida per mettere ClutchBet in produzione su un VPS (DigitalOcean, Hetzner, o qualsiasi server Linux).
 
-## Cosa fa il daemon
+## Architettura di processo
 
-Il daemon (`npm run daemon`) è un processo Node.js che resta attivo 24/7 e orchestra automaticamente il ciclo giornaliero:
+ClutchBet usa **un processo pm2 indipendente per ogni profilo**. Ogni processo gestisce autonomamente il ciclo completo del suo profilo: generazione contenuti, pubblicazione schedulata, monitoraggio risultati.
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│  npm run daemon                                                 │
-│  (processo sempre attivo, gestito da pm2)                       │
-└─────────────────────────────────────────────────────────────────┘
+pm2 start ecosystem.config.cjs
+  ├─ il-capitano   (--profile=config/profiles/il-capitano.yaml)
+  ├─ il-mago       (--profile=config/profiles/il-mago.yaml)
+  └─ ...           (auto-discovered da config/profiles/*.yaml)
+```
+
+Ogni processo pm2:
+- È **completamente isolato** dagli altri
+- Può essere stoppato/riavviato singolarmente senza intaccare gli altri
+- Ha i propri log separati
+- Gestisce il proprio watcher dei risultati come child process
+
+### Ciclo giornaliero (per profilo)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  pm2: il-capitano                                           │
+│  daemon.ts --profile=config/profiles/il-capitano.yaml       │
+└─────────────────────────────────────────────────────────────┘
          │
          │  All'avvio:
-         │  1. Legge tutti i profili da config/profiles/*.yaml
+         │  1. Controlla se ci sono post non pubblicati da oggi
+         │     → Se sì: riprende la pubblicazione (resume con await)
+         │     → Scade i contenuti dei giorni precedenti
          │  2. Registra un cron job giornaliero (default: 08:00)
-         │  3. Controlla se ci sono post non pubblicati da oggi    │
-         │     → Se sì: riprende la pubblicazione (resume)        │
-         │     → Scade i contenuti dei giorni precedenti          │
-         │  4. Resta in attesa                                    │
+         │  3. Resta in attesa
          │
          ▼
-┌─────────────────────────────────────────────────────────────────┐
-│  CRON: ogni giorno alle 08:00 (configurabile)                   │
-│                                                                 │
-│  Per ogni profilo (es. il-capitano.yaml):                       │
-│                                                                 │
-│    0. CHECK: contenuti già generati oggi?                       │
-│       → Sì, tutti pubblicati: skip                              │
-│       → Sì, ma alcuni pending: resume (pubblica solo mancanti) │
-│       → No: generazione normale (vedi sotto)                    │
-│                                                                 │
-│    1. CONTENT GENERATION                                        │
-│       Scheduler → Data Fetcher → Content Writer → Publisher     │
-│       I post vengono salvati nel DB (content_queue) PRIMA       │
-│       della pubblicazione → sopravvivono a crash/restart        │
-│       Le scommesse vengono salvate nel DB SQLite                │
-│                                                                 │
-│    2. RESULTS WATCHER (avviato 5 min dopo)                      │
-│       Polling ogni ora su API-Football                          │
-│       Quando le partite finiscono:                              │
-│       → Valuta le scommesse (vinta/persa)                       │
-│       → Genera un post di recap con LLM                         │
-│       → Pubblica su Telegram                                    │
-│                                                                 │
-│  Il giorno dopo alle 08:00 → ripete tutto                       │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  CRON: ogni giorno alle 08:00 (configurabile)               │
+│                                                             │
+│  1. CONTENT GENERATION                                      │
+│     Scheduler → Data Fetcher → Content Writer → Publisher   │
+│     I post vengono salvati nel DB (content_queue) PRIMA     │
+│     della pubblicazione → sopravvivono a crash/restart      │
+│     Le scommesse vengono salvate nel DB SQLite              │
+│                                                             │
+│  2. RESULTS WATCHER (avviato 5 min dopo)                    │
+│     Polling ogni ora su API-Football                        │
+│     Quando le partite finiscono:                            │
+│     → Valuta le scommesse (vinta/persa)                     │
+│     → Genera un post di recap con LLM                       │
+│     → Pubblica su Telegram                                  │
+│                                                             │
+│  Il giorno dopo alle 08:00 → ripete tutto                   │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ### Giornata tipo
 
 | Orario | Azione |
 |---|---|
-| 08:00 | Cron scatta → content generation per ogni profilo |
+| 08:00 | Cron scatta → content generation |
 | 08:02 | Scheduler decide quali rubriche generare oggi |
 | 08:03 | Data Fetcher scarica partite + quote da API-Football |
-| 08:04 | Content Writer genera i post con LLM |
+| 08:04 | Content Writer genera i post con LLM + immagini AI |
 | 08:05 | Publisher pubblica (o attende gli orari definiti nel profilo) |
-| 12:00 | Pubblica "Tip del Giorno" (esempio) |
-| 18:00 | Pubblica "Multipla Serale" (esempio) |
+| 14:30 | Pubblica "Giocata del Giorno" (esempio) |
+| 15:00 | Pubblica "Cartellino Tattico" (esempio) |
 | 08:10 | Results Watcher avviato — schedula i check per ogni partita |
 | ~22:15 | Partite finite → valuta scommesse → genera e pubblica recap |
 | 08:00 domani | Ripete tutto da capo |
@@ -168,26 +175,27 @@ npm run content -- --profile=config/profiles/il-capitano.yaml
 npm run watch-results -- --profile=config/profiles/il-capitano.yaml
 ```
 
-### 9. Avvia il daemon con pm2
+### 9. Avvia i daemon con pm2
 
 ```bash
 pm2 start ecosystem.config.cjs
 ```
 
-Questo usa il file `ecosystem.config.cjs` nella root del progetto, che configura pm2 per eseguire il daemon correttamente (senza problemi con `.CMD` su Windows o path su Linux).
+Il file `ecosystem.config.cjs` auto-scopre tutti i profili YAML in `config/profiles/` e crea un processo pm2 separato per ciascuno. Ogni processo ha il nome del profilo (es. `il-capitano`).
 
-Verifica che sia in esecuzione:
+Verifica che siano in esecuzione:
 ```bash
 pm2 status
 ```
 
 Output atteso:
 ```
-┌─────────┬────┬──────┬───────┬────────┬─────┬──────────┐
-│ Name    │ id │ mode │ pid   │ status │ cpu │ memory   │
-├─────────┼────┼──────┼───────┼────────┼─────┼──────────┤
-│ clutchbet│ 0 │ fork │ 12345 │ online │ 0%  │ 50.0mb  │
-└─────────┴────┴──────┴───────┴────────┴─────┴──────────┘
+┌──────────────┬────┬──────┬───────┬────────┬─────┬──────────┐
+│ Name         │ id │ mode │ pid   │ status │ cpu │ memory   │
+├──────────────┼────┼──────┼───────┼────────┼─────┼──────────┤
+│ il-capitano  │ 0  │ fork │ 12345 │ online │ 0%  │ 50.0mb  │
+│ il-mago      │ 1  │ fork │ 12346 │ online │ 0%  │ 48.0mb  │
+└──────────────┴────┴──────┴───────┴────────┴─────┴──────────┘
 ```
 
 ### 10. Configura auto-start al reboot
@@ -211,14 +219,16 @@ Da questo momento, se il server si riavvia, pm2 rilancia automaticamente il daem
 
 | Comando | Cosa fa |
 |---|---|
-| `pm2 logs clutchbet` | Mostra i log in tempo reale |
-| `pm2 logs clutchbet --lines 100` | Mostra le ultime 100 righe di log |
-| `pm2 stop clutchbet` | Ferma il daemon |
-| `pm2 start clutchbet` | Riavvia il daemon |
-| `pm2 restart clutchbet` | Stop + start |
-| `pm2 delete clutchbet` | Rimuove il daemon da pm2 |
+| `pm2 logs il-capitano` | Mostra i log in tempo reale per un profilo |
+| `pm2 logs il-capitano --lines 100` | Mostra le ultime 100 righe di log |
+| `pm2 stop il-capitano` | Ferma un singolo profilo (gli altri continuano) |
+| `pm2 start il-capitano` | Riavvia un singolo profilo |
+| `pm2 restart il-capitano` | Stop + start di un singolo profilo |
+| `pm2 delete il-capitano` | Rimuove un profilo da pm2 |
 | `pm2 status` | Stato di tutti i processi |
 | `pm2 monit` | Monitoring interattivo (CPU, RAM, log) |
+| `pm2 start ecosystem.config.cjs` | Registra/avvia tutti i profili |
+| `pm2 start ecosystem.config.cjs --only il-mago` | Registra/avvia un solo profilo |
 
 ### Restart e persistenza
 
@@ -231,7 +241,7 @@ Da questo momento, se il server si riavvia, pm2 rilancia automaticamente il daem
 
 ```bash
 # Restart sicuro — riprende da dove era rimasto
-pm2 restart clutchbet
+pm2 restart il-capitano
 ```
 
 ### Aggiornare il codice
@@ -240,7 +250,8 @@ pm2 restart clutchbet
 cd ClutchBet
 git pull
 npm install          # se ci sono nuove dipendenze
-pm2 restart clutchbet
+pm2 restart all      # riavvia tutti i profili
+# oppure: pm2 restart il-capitano   # riavvia solo uno specifico
 ```
 
 ### Run immediato per test
@@ -248,13 +259,13 @@ pm2 restart clutchbet
 Il daemon supporta il flag `--now` per triggerare un run immediato (utile per testare):
 
 ```bash
-# In locale: avvia il daemon E lancia subito il ciclo giornaliero
-npm run daemon -- --now
+# In locale: avvia il daemon per un profilo E lancia subito il ciclo giornaliero
+npx tsx src/daemon.ts --profile=config/profiles/il-capitano.yaml --now
 
 # Con pm2: ferma, lancia il test, poi riavvia normalmente
-pm2 stop clutchbet
-npm run daemon -- --now    # Ctrl+C quando finisce
-pm2 start clutchbet
+pm2 stop il-capitano
+npx tsx src/daemon.ts --profile=config/profiles/il-capitano.yaml --now    # Ctrl+C quando finisce
+pm2 start il-capitano
 ```
 
 ## Configurazione avanzata
@@ -276,7 +287,7 @@ DAEMON_CONTENT_CRON=0 7,14 * * *
 
 Dopo la modifica:
 ```bash
-pm2 restart clutchbet
+pm2 restart all    # o un profilo specifico: pm2 restart il-capitano
 ```
 
 ### Aggiungere un nuovo profilo
@@ -285,8 +296,8 @@ pm2 restart clutchbet
 2. Parsalo: `npm run parse-profile -- output/profiles/nuovo-profilo.md`
 3. Il file YAML viene salvato in `config/profiles/nuovo-profilo.yaml`
 4. Configura la sezione `config:` nel YAML (publishChannel, league, ecc.)
-5. Riavvia il daemon: `pm2 restart clutchbet`
-6. Il daemon lo troverà automaticamente al prossimo ciclo
+5. Registra il nuovo profilo in pm2: `pm2 start ecosystem.config.cjs --only nuovo-profilo`
+6. Gli altri processi pm2 non vengono toccati
 
 ### Timezone
 
@@ -296,7 +307,7 @@ Il cron usa il timezone `Europe/Rome` (hardcoded nel daemon). Le ore nel cron so
 
 ### Il daemon non posta
 
-1. Controlla i log: `pm2 logs clutchbet`
+1. Controlla i log: `pm2 logs il-capitano`
 2. Verifica che `reviewBeforePublish: false` nella sezione `config:` del profilo YAML
 3. Verifica che `publishChannel` sia configurato nella sezione `config:` del profilo YAML
 4. Verifica che `FOOTBALL_API_KEY` sia nel `.env` (senza: usa dati fittizi)

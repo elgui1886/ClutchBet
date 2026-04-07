@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1080">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --primary: #D4AF37;
+    --accent: #1a1a2e;
+    --primary-rgb: 212, 175, 55;
+  }
+
+  body {
+    width: 1080px;
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    background: transparent;
+    color: #ffffff;
+    overflow: hidden;
+  }
+
+  .container {
+    width: 1080px;
+    min-height: 900px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* AI-generated background */
+  .bg-image {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: 0;
+  }
+
+  /* Dark overlay to ensure text readability */
+  .bg-overlay {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      180deg,
+      rgba(0,0,0,0.35) 0%,
+      rgba(0,0,0,0.55) 30%,
+      rgba(0,0,0,0.70) 60%,
+      rgba(0,0,0,0.80) 100%
+    );
+    z-index: 1;
+  }
+
+  /* Subtle brand-colored vignette */
+  .brand-glow {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at 20% 0%, rgba(var(--primary-rgb), 0.12) 0%, transparent 50%),
+      radial-gradient(ellipse at 80% 100%, rgba(var(--primary-rgb), 0.06) 0%, transparent 50%);
+    z-index: 2;
+    pointer-events: none;
+  }
+
+  .content {
+    position: relative;
+    z-index: 3;
+    padding: 50px;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    margin-bottom: 12px;
+  }
+
+  .logo-container {
+    width: 64px;
+    height: 64px;
+    border-radius: 16px;
+    background: rgba(0,0,0,0.4);
+    border: 2px solid var(--primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 30px rgba(var(--primary-rgb), 0.3);
+    flex-shrink: 0;
+    backdrop-filter: blur(10px);
+  }
+
+  .logo-container svg {
+    width: 44px;
+    height: 44px;
+  }
+
+  .brand {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .brand-name {
+    font-size: 36px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: #ffffff;
+    line-height: 1.1;
+    text-shadow: 0 2px 10px rgba(0,0,0,0.5);
+  }
+
+  .brand-tag {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--primary);
+    margin-top: 3px;
+    text-shadow: 0 1px 5px rgba(0,0,0,0.5);
+  }
+
+  /* Title section */
+  .slip-title-section {
+    margin: 30px 0 35px;
+  }
+
+  .slip-title {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #ffffff;
+    text-shadow: 0 2px 15px rgba(0,0,0,0.5);
+  }
+
+  .title-line {
+    margin-top: 14px;
+    height: 3px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, var(--primary), transparent 80%);
+  }
+
+  /* Bet cards */
+  .bets-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .bet-card {
+    display: flex;
+    align-items: center;
+    background: rgba(0,0,0,0.35);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-left: 3px solid var(--primary);
+    border-radius: 14px;
+    padding: 20px 24px;
+    backdrop-filter: blur(12px);
+  }
+
+  .bet-index {
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    background: var(--primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 800;
+    font-size: 16px;
+    color: var(--accent);
+    flex-shrink: 0;
+    margin-right: 20px;
+    box-shadow: 0 0 15px rgba(var(--primary-rgb), 0.3);
+  }
+
+  .bet-details {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .bet-match {
+    font-size: 21px;
+    font-weight: 700;
+    color: #f1f5f9;
+    margin-bottom: 5px;
+    line-height: 1.3;
+    text-shadow: 0 1px 5px rgba(0,0,0,0.4);
+  }
+
+  .bet-match .separator {
+    color: var(--primary);
+    margin: 0 10px;
+    font-weight: 300;
+    font-size: 16px;
+  }
+
+  .bet-type-label {
+    font-size: 14px;
+    color: #94a3b8;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+  }
+
+  .bet-quota {
+    flex-shrink: 0;
+    margin-left: 20px;
+    min-width: 82px;
+    text-align: center;
+    padding: 10px 16px;
+    border-radius: 12px;
+    background: rgba(var(--primary-rgb), 0.15);
+    border: 1px solid rgba(var(--primary-rgb), 0.35);
+  }
+
+  .bet-quota-value {
+    font-size: 22px;
+    font-weight: 800;
+    color: var(--primary);
+    text-shadow: 0 0 20px rgba(var(--primary-rgb), 0.4);
+  }
+
+  /* Total section */
+  .total-section {
+    margin-top: 35px;
+    padding: 30px;
+    border-radius: 20px;
+    background: rgba(0,0,0,0.4);
+    border: 1px solid rgba(var(--primary-rgb), 0.2);
+    text-align: center;
+    position: relative;
+    overflow: hidden;
+    backdrop-filter: blur(12px);
+  }
+
+  .total-section::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at center, rgba(var(--primary-rgb), 0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .total-label {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+    color: #94a3b8;
+    margin-bottom: 10px;
+    position: relative;
+  }
+
+  .total-value {
+    font-size: 58px;
+    font-weight: 900;
+    color: #ffffff;
+    line-height: 1;
+    position: relative;
+    text-shadow: 0 0 40px rgba(var(--primary-rgb), 0.5), 0 0 80px rgba(var(--primary-rgb), 0.2);
+  }
+
+  /* Footer */
+  .footer {
+    margin-top: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .footer-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--primary);
+  }
+
+  .footer-text {
+    font-size: 13px;
+    color: rgba(255,255,255,0.4);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+</style>
+</head>
+<body>
+<div class="container" id="slip">
+  <!-- AI-generated background injected here -->
+  <img class="bg-image" id="bg-image" src="" alt="">
+  <div class="bg-overlay"></div>
+  <div class="brand-glow"></div>
+
+  <div class="content">
+    <div class="header">
+      <div class="logo-container" id="logo-container"></div>
+      <div class="brand">
+        <div class="brand-name" id="brand-name"></div>
+        <div class="brand-tag" id="brand-tag"></div>
+      </div>
+    </div>
+
+    <div class="slip-title-section">
+      <div class="slip-title" id="slip-title"></div>
+      <div class="title-line"></div>
+    </div>
+
+    <div class="bets-list" id="bets-container"></div>
+
+    <div class="total-section">
+      <div class="total-label">Quota Totale</div>
+      <div class="total-value" id="total-odd"></div>
+    </div>
+
+    <div class="footer">
+      <span class="footer-text" id="footer-name"></span>
+      <div class="footer-dot"></div>
+      <span class="footer-text">Telegram</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  /**
+   * @param {object} data
+   * @param {string} data.title
+   * @param {Array} data.bets
+   * @param {number} data.totalOdd
+   * @param {object} data.branding
+   * @param {string} data.branding.primary_color
+   * @param {string} data.branding.accent_color
+   * @param {string} [data.branding.logo_svg]
+   * @param {string} [data.branding.tagline]
+   * @param {string} data.profileName
+   * @param {string} [data.backgroundBase64] - base64 PNG background
+   */
+  function render(data) {
+    // Apply brand colors as CSS variables
+    const root = document.documentElement;
+    root.style.setProperty('--primary', data.branding.primary_color);
+    root.style.setProperty('--accent', data.branding.accent_color);
+
+    // Parse hex color to RGB for rgba() usage
+    const hex = data.branding.primary_color.replace('#', '');
+    const r = parseInt(hex.substring(0, 2), 16);
+    const g = parseInt(hex.substring(2, 4), 16);
+    const b = parseInt(hex.substring(4, 6), 16);
+    root.style.setProperty('--primary-rgb', `${r}, ${g}, ${b}`);
+
+    // Set background image
+    if (data.backgroundBase64) {
+      document.getElementById('bg-image').src =
+        'data:image/png;base64,' + data.backgroundBase64;
+    }
+
+    // Brand header
+    document.getElementById('brand-name').textContent = data.profileName;
+    document.getElementById('brand-tag').textContent =
+      data.branding.tagline || '';
+
+    // Logo
+    if (data.branding.logo_svg) {
+      document.getElementById('logo-container').innerHTML =
+        data.branding.logo_svg;
+    }
+
+    // Footer
+    document.getElementById('footer-name').textContent = data.profileName;
+
+    // Slip data
+    document.getElementById('slip-title').textContent =
+      data.title.toUpperCase();
+    document.getElementById('total-odd').textContent =
+      data.totalOdd.toFixed(2);
+
+    const container = document.getElementById('bets-container');
+    container.innerHTML = '';
+
+    data.bets.forEach((bet, i) => {
+      const card = document.createElement('div');
+      card.className = 'bet-card';
+      card.innerHTML = `
+        <div class="bet-index">${i + 1}</div>
+        <div class="bet-details">
+          <div class="bet-match">${escapeHtml(bet.homeTeam)}<span class="separator">vs</span>${escapeHtml(bet.awayTeam)}</div>
+          <div class="bet-type-label">${escapeHtml(bet.betType)}</div>
+        </div>
+        <div class="bet-quota">
+          <div class="bet-quota-value">${bet.odd.toFixed(2)}</div>
+        </div>
+      `;
+      container.appendChild(card);
+    });
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+  }
+</script>
+</body>
+</html>

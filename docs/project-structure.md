@@ -9,7 +9,7 @@ ClutchBet/
 │   ├── parse-profile.ts               # One-off: MD profile → YAML config
 │   ├── check-results.ts               # Check bet results + generate recap (--profile=...)
 │   ├── watch-results.ts               # Daemon: poll for results + auto-recap (--profile=...)
-│   ├── daemon.ts                      # Long-running daemon (cron + watchers per profile)
+│   ├── daemon.ts                      # Per-profile daemon (cron + watcher, requires --profile=)
 │   ├── reset.ts                       # Reset: pulisce DB + content-history
 │   ├── shared/
 │   │   ├── telegram-utils.ts          # resolvePeer(), createTelegramClient()
@@ -21,9 +21,11 @@ ClutchBet/
 │   │   ├── state.ts                   # WorkflowState
 │   │   ├── graph.ts                   # scraper → llm_generator → publisher
 │   │   ├── index.ts                   # Entry point (loads channels.yaml)
-│   │   ├── image-renderer.ts          # Puppeteer bet-slip renderer
+│   │   ├── image-renderer.ts          # Puppeteer bet-slip renderer (supports branded backgrounds)
+│   │   ├── background-generator.ts    # AI background generation via gpt-image-1
 │   │   ├── templates/
-│   │   │   └── bet-slip.html          # HTML/CSS bet-slip template
+│   │   │   ├── bet-slip.html          # Legacy HTML/CSS bet-slip template
+│   │   │   └── bet-slip-v2.html       # Branded template with AI background overlay
 │   │   └── nodes/
 │   │       ├── scraper.ts             # Telegram scraper + LLM filter
 │   │       ├── llm-generator.ts       # Image analysis + optimization + caption
@@ -145,6 +147,7 @@ npm start -- generation      # or: npm run generation
 npm start -- analysis        # or: npm run analysis
 npm start -- content         # or: npm run content
 npm start -- check-results   # or: npm run check-results
+npm start -- watch-results   # or: npm run watch-results
 npm start -- parse-profile   # or: npm run parse-profile
 ```
 
@@ -174,11 +177,19 @@ Entry point. Loads `config/channels.yaml`, invokes the graph, saves generated ou
 
 ### `image-renderer.ts`
 
-Puppeteer-based bet-slip image generator. Takes a `BetSlip` JSON and renders `templates/bet-slip.html` to PNG.
+Puppeteer-based bet-slip image generator. Supports two modes:
+- **Branded mode** (with `BrandingConfig`): uses `bet-slip-v2.html` template, injects AI-generated background image, applies profile-specific colors/logo
+- **Legacy mode** (without branding): uses `bet-slip.html` with a default dark theme
 
 Exports:
 - `BetSlip` interface: `{ title, bets: [{ homeTeam, awayTeam, betType, odd }], totalOdd }`
-- `renderBetSlipImage(slip): Promise<Buffer>`
+- `renderBetSlipImage(slip, branding?, profileName?, backgroundBase64?): Promise<Buffer>`
+
+### `background-generator.ts`
+
+Generates unique AI background images using OpenAI's `gpt-image-1` model. Each background is themed to the profile's branding (`bg_prompt_hint`) and the specific editorial format name. Returns a base64-encoded PNG (1024×1792).
+
+The prompt explicitly forbids text/numbers/logos in the background to ensure clean text overlay.
 
 ### `nodes/scraper.ts`
 
@@ -252,7 +263,8 @@ LangGraph state for content generation:
 - `FixtureOdds` — `{ home, draw, away, over25?, under25?, btts_yes?, btts_no?, bookmaker? }`
 - `Fixture` — `{ homeTeam, awayTeam, league, date, time, venue?, referee?, odds? }`
 - `BetSelection` — `{ homeTeam, awayTeam, league, kickoff, selection, odds }` — extracted from generated content for tracking
-- `FormatConfig` — includes `publish_time?` (HH:MM) for timed publishing
+- `BrandingConfig` — `{ primary_color, accent_color, bg_prompt_hint, logo_svg?, tagline? }` — visual identity per profile
+- `FormatConfig` — includes `publish_time?` (HH:MM) for timed publishing, `generate_image` (boolean) to control bet-slip rendering
 - `ContentItem` — `{ formatSlug, formatName, text, publishTime?, bets?, approved, published }`
 - `ContentState` — `Annotation.Root` with `profilePath`, `profile` (parsed YAML), `publishChannel`, `leagueId`, `leagueSeason`, `date`, `fixtures`, `scheduledFormats`, `contentItems`, `publishResult`
 
@@ -264,7 +276,7 @@ LangGraph state for content generation:
 
 ### `index.ts`
 
-Entry point. Loads `config/content.yaml`, reads the referenced profile YAML, invokes the content graph. Supports CLI override: `npm run content -- --profile=config/profiles/other.yaml`.
+Entry point. Reads `--profile=<path>` from CLI args, loads the referenced profile YAML, invokes the content graph. All configuration (publishChannel, league, branding) comes from the profile YAML's `config:` section.
 
 ### `nodes/scheduler.ts`
 
@@ -272,6 +284,7 @@ Determines which editorial formats to generate today:
 - Reads the profile's scheduling rules
 - Checks day of week for special triggers (Sunday evening → Fischio Finale, Fri/Sat → La Lavagna)
 - Schedules match-day formats + no-match-day formats (data-fetcher refines later)
+- Automatically excludes formats with weekly/monthly/special frequency from daily lists (handled only via special triggers)
 
 ### `nodes/data-fetcher.ts`
 
@@ -289,6 +302,7 @@ LLM-powered content generation:
 - Uses `prompts/content-post.md` as the base prompt template
 - Generates one post per format, respecting the profile's tone of voice and template structure
 - **Bet extraction**: for formats containing bets, makes a second LLM call to extract structured bet selections (`BetSelection[]`) for tracking
+- **Image generation**: for formats with `generate_image: true`, generates an AI background via `gpt-image-1` (branded to the profile's `branding` config) and renders the bet-slip overlay with Puppeteer
 
 ### `nodes/reviewer.ts`
 
@@ -356,6 +370,8 @@ months: 3
 ```
 
 ### `content.yaml` (Content Generator)
+
+> **Nota**: questo file non viene letto dal codice. Tutte le impostazioni del content generator (publishChannel, league, reviewBeforePublish) sono nella sezione `config:` di ogni profilo YAML in `config/profiles/`. Il file resta come riferimento ma è ininfluente.
 
 ```yaml
 profile: "config/profiles/il-capitano.yaml"
@@ -472,8 +488,11 @@ npm run check-results -- --profile=config/profiles/il-capitano.yaml
 # 10. Watch results automatically (polling daemon)
 npm run watch-results -- --profile=config/profiles/il-capitano.yaml
 
-# 11. Run the full daemon (cron-based, for production)
-npm run daemon
+# 11. Run per-profile daemons (cron-based, for production)
+pm2 start ecosystem.config.cjs
+# Manage individual profiles:
+# pm2 stop/start/restart il-capitano
+# pm2 logs il-capitano
 
 # 12. Reset all data (DB + content-history)
 npm run reset

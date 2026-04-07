@@ -6,6 +6,7 @@
  *   npm start -- analysis        Run the channel-analysis workflow
  *   npm start -- content         Run the content-generator workflow
  *   npm start -- check-results   Check results for pending bets + generate recap
+ *   npm start -- watch-results   Watch for match results and publish recaps
  *   npm start -- parse-profile   Parse an MD profile to YAML
  */
 
@@ -32,6 +33,10 @@ async function run() {
       await import("./check-results.js");
       break;
     }
+    case "watch-results": {
+      await import("./watch-results.js");
+      break;
+    }
     case "parse-profile": {
       await import("./parse-profile.js");
       break;
@@ -44,6 +49,7 @@ async function run() {
           "  npm start -- analysis        Run the channel-analysis workflow\n" +
           "  npm start -- content         Run the content-generator workflow\n" +
           "  npm start -- check-results   Check results for pending bets\n" +
+          "  npm start -- watch-results   Watch for match results\n" +
           "  npm start -- parse-profile   Parse an MD profile to YAML\n"
       );
       process.exit(1);

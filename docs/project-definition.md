@@ -10,7 +10,7 @@ Il progetto contiene **tre workflow LangGraph** più utility commands all'intern
 | **Check Results** | Verifica risultati scommesse → genera recap | `npm run check-results` |
 | **Watch Results** | Daemon che fa polling automatico dei risultati | `npm run watch-results` |
 | **Parse Profile** | Converte profilo MD → YAML strutturato | `npm run parse-profile` |
-| **Daemon** | Orchestratore cron giornaliero (pm2) | `npm run daemon` |
+| **Daemon** | Un processo pm2 per profilo, cron giornaliero | `pm2 start ecosystem.config.cjs` |
 | **Reset** | Pulisce database e content-history | `npm run reset` |
 | **Setup Telegram** | Autenticazione Telegram (una tantum) | `npx tsx src/setup-telegram.ts` |
 | **List Channels** | Elenca i canali Telegram accessibili | `npx tsx src/list-channels.ts` |

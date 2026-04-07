@@ -24,6 +24,15 @@ export interface Fixture {
   odds?: FixtureOdds;
 }
 
+/** Branding configuration for image generation */
+export interface BrandingConfig {
+  primary_color: string;     // Main brand color (e.g. "#D4AF37" gold)
+  accent_color: string;      // Secondary color (e.g. "#1a1a2e" navy)
+  bg_prompt_hint: string;    // Hint for DALL-E background generation (e.g. "stadium atmosphere, golden lighting")
+  logo_svg?: string;         // Inline SVG logo (optional)
+  tagline?: string;          // Short tagline displayed on images
+}
+
 /** A single format definition from the parsed YAML profile */
 export interface FormatConfig {
   name: string;
@@ -32,6 +41,7 @@ export interface FormatConfig {
   type: string;
   description: string;
   requires_data: string[];
+  generate_image: boolean;  // Whether this format should include a bet-slip image
   template: string;
   publish_time?: string;  // HH:MM — preferred publish time (e.g. "14:00")
   example_posts?: string[];  // Concrete example posts to guide LLM style
@@ -54,6 +64,7 @@ export interface ProfileConfig {
     uppercase_rule: string;
   };
   formats: FormatConfig[];
+  branding: BrandingConfig;
   scheduling: {
     match_day: {
       max_posts: number;

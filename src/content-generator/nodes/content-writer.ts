@@ -3,6 +3,7 @@ import { HumanMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
 import { loadPrompt } from "../../shared/llm-utils.js";
 import { renderBetSlipImage, type BetSlip } from "../../generation/image-renderer.js";
+import { generateBackground } from "../../generation/background-generator.js";
 import { profileSlugFromPath } from "../../shared/bet-tracker.js";
 import { loadTopicHistory, saveTopicEntry } from "../../shared/content-history.js";
 import type {
@@ -84,9 +85,9 @@ export async function contentWriterNode(
       }
     }
 
-    // Render bet-slip image for formats containing bets
+    // Render bet-slip image only if the format is configured for it
     let imageBase64: string | undefined;
-    if (bets && bets.length > 0) {
+    if (format.generate_image && bets && bets.length > 0) {
       try {
         console.log(`  🖼️  Rendering bet-slip image...`);
         const slip: BetSlip = {
@@ -102,7 +103,26 @@ export async function contentWriterNode(
             35
           ),
         };
-        const imageBuffer = await renderBetSlipImage(slip);
+
+        // Generate AI background if branding is available
+        let backgroundBase64: string | undefined;
+        if (profile.branding) {
+          try {
+            backgroundBase64 = await generateBackground(
+              profile.branding,
+              format.name,
+            );
+          } catch (bgErr) {
+            console.log(`  ⚠️  AI background generation failed: ${bgErr}. Using plain background.`);
+          }
+        }
+
+        const imageBuffer = await renderBetSlipImage(
+          slip,
+          profile.branding,
+          profile.profile.name,
+          backgroundBase64,
+        );
         imageBase64 = imageBuffer.toString("base64");
         console.log(`  🖼️  Image rendered (${Math.round(imageBuffer.length / 1024)} KB)`);
       } catch (err) {

@@ -9,6 +9,27 @@ import {
   expireOldContent,
 } from "./shared/content-store.js";
 
+// ── Profile argument ─────────────────────────────────────────
+
+const profileArg = process.argv.find((a) => a.startsWith("--profile="));
+if (!profileArg) {
+  console.error(
+    "❌ Missing --profile argument.\n\n" +
+      "Usage:\n" +
+      "  npx tsx src/daemon.ts --profile=config/profiles/il-capitano.yaml\n" +
+      "  pm2 start ecosystem.config.cjs\n"
+  );
+  process.exit(1);
+}
+
+const PROFILE_PATH = profileArg.split("=")[1];
+if (!fs.existsSync(PROFILE_PATH)) {
+  console.error(`❌ Profile not found: ${PROFILE_PATH}`);
+  process.exit(1);
+}
+
+const PROFILE_NAME = path.basename(PROFILE_PATH, ".yaml");
+
 // ── Configuration ────────────────────────────────────────────
 
 /** Cron expression for daily content generation (default: 08:00) */
@@ -19,7 +40,7 @@ const WATCHER_DELAY_MS = 5 * 60 * 1000; // 5 minutes
 
 // ── State ────────────────────────────────────────────────────
 
-let activeWatchers: ChildProcess[] = [];
+let activeWatcher: ChildProcess | null = null;
 let isRunning = false;
 
 // ── Logging ──────────────────────────────────────────────────
@@ -33,18 +54,7 @@ function log(msg: string): void {
     minute: "2-digit",
     second: "2-digit",
   });
-  console.log(`[${ts}] ${msg}`);
-}
-
-// ── Profile discovery ────────────────────────────────────────
-
-function discoverProfiles(): string[] {
-  const dir = path.resolve("config", "profiles");
-  if (!fs.existsSync(dir)) return [];
-  return fs
-    .readdirSync(dir)
-    .filter((f) => f.endsWith(".yaml"))
-    .map((f) => path.join("config", "profiles", f));
+  console.log(`[${ts}] [${PROFILE_NAME}] ${msg}`);
 }
 
 // ── Child process helpers ────────────────────────────────────
@@ -65,34 +75,33 @@ function runCommand(script: string, args: string[] = []): Promise<number> {
   });
 }
 
-function startWatcher(profilePath: string): void {
-  const name = path.basename(profilePath, ".yaml");
-  log(`👀 [${name}] Starting results watcher...`);
+function startWatcher(): void {
+  log(`👀 Starting results watcher...`);
 
-  const watcher = spawn("npx", ["tsx", "src/watch-results.ts", `--profile=${profilePath}`], {
+  const watcher = spawn("npx", ["tsx", "src/watch-results.ts", `--profile=${PROFILE_PATH}`], {
     stdio: "inherit",
     cwd: process.cwd(),
     shell: true,
   });
 
   watcher.on("exit", (code) => {
-    log(`👀 [${name}] Watcher exited (code: ${code})`);
-    activeWatchers = activeWatchers.filter((w) => w !== watcher);
+    log(`👀 Watcher exited (code: ${code})`);
+    activeWatcher = null;
   });
 
   watcher.on("error", (err) => {
-    log(`❌ [${name}] Watcher error: ${err.message}`);
-    activeWatchers = activeWatchers.filter((w) => w !== watcher);
+    log(`❌ Watcher error: ${err.message}`);
+    activeWatcher = null;
   });
 
-  activeWatchers.push(watcher);
+  activeWatcher = watcher;
 }
 
-function stopAllWatchers(): void {
-  for (const w of activeWatchers) {
-    if (!w.killed) w.kill("SIGTERM");
+function stopWatcher(): void {
+  if (activeWatcher && !activeWatcher.killed) {
+    activeWatcher.kill("SIGTERM");
   }
-  activeWatchers = [];
+  activeWatcher = null;
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -112,12 +121,6 @@ async function dailyRun(): Promise<void> {
   isRunning = true;
 
   try {
-    const profiles = discoverProfiles();
-    if (profiles.length === 0) {
-      log("⚠️  No profiles found in config/profiles/. Skipping.");
-      return;
-    }
-
     const date = today();
 
     // Expire old content from previous days
@@ -126,67 +129,55 @@ async function dailyRun(): Promise<void> {
       log(`🧹 Expired ${expired} old content queue item(s) from previous days.`);
     }
 
-    log(
-      `📋 Found ${profiles.length} profile(s): ${profiles.map((p) => path.basename(p, ".yaml")).join(", ")}`
-    );
-
-    for (const profilePath of profiles) {
-      const name = path.basename(profilePath, ".yaml");
-
-      // Check if content was already generated today
-      if (hasContentForDate(name, date)) {
-        const pending = getPendingContent(name, date);
-        if (pending.length > 0) {
-          log(`\n🔄 [${name}] ${pending.length} unpublished item(s) found. Resuming...`);
-          try {
-            const exitCode = await runCommand("src/index.ts", [
-              "content",
-              `--profile=${profilePath}`,
-              "--resume",
-            ]);
-            if (exitCode === 0) {
-              log(`✅ [${name}] Resume publishing completed.`);
-            } else {
-              log(`⚠️  [${name}] Resume exited with code ${exitCode}`);
-            }
-          } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err);
-            log(`❌ [${name}] Resume failed: ${msg}`);
+    // Check if content was already generated today
+    if (hasContentForDate(PROFILE_NAME, date)) {
+      const pending = getPendingContent(PROFILE_NAME, date);
+      if (pending.length > 0) {
+        log(`🔄 ${pending.length} unpublished item(s) found. Resuming...`);
+        try {
+          const exitCode = await runCommand("src/index.ts", [
+            "content",
+            `--profile=${PROFILE_PATH}`,
+            "--resume",
+          ]);
+          if (exitCode === 0) {
+            log(`✅ Resume publishing completed.`);
+          } else {
+            log(`⚠️  Resume exited with code ${exitCode}`);
           }
-        } else {
-          log(`\n✅ [${name}] All content for today already published. Skipping.`);
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          log(`❌ Resume failed: ${msg}`);
         }
-        continue;
+      } else {
+        log(`✅ All content for today already published. Skipping.`);
       }
-
+    } else {
       // Normal flow: generate + publish
-      log(`\n🚀 [${name}] Starting content generation...`);
+      log(`🚀 Starting content generation...`);
 
       try {
         const exitCode = await runCommand("src/index.ts", [
           "content",
-          `--profile=${profilePath}`,
+          `--profile=${PROFILE_PATH}`,
         ]);
 
         if (exitCode === 0) {
-          log(`✅ [${name}] Content generation completed.`);
+          log(`✅ Content generation completed.`);
         } else {
-          log(`⚠️  [${name}] Content generation exited with code ${exitCode}`);
+          log(`⚠️  Content generation exited with code ${exitCode}`);
         }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
-        log(`❌ [${name}] Content generation failed: ${msg}`);
+        log(`❌ Content generation failed: ${msg}`);
       }
     }
 
-    // Start results watchers after a short delay (one per profile)
-    // (gives time for bets to be saved to DB)
-    log(`\n⏳ Starting results watchers in ${WATCHER_DELAY_MS / 60_000} minutes...`);
+    // Start results watcher after a short delay
+    log(`⏳ Starting results watcher in ${WATCHER_DELAY_MS / 60_000} minutes...`);
     setTimeout(() => {
-      stopAllWatchers();
-      for (const profilePath of profiles) {
-        startWatcher(profilePath);
-      }
+      stopWatcher();
+      startWatcher();
     }, WATCHER_DELAY_MS);
   } finally {
     isRunning = false;
@@ -195,17 +186,14 @@ async function dailyRun(): Promise<void> {
 
 // ── Main ─────────────────────────────────────────────────────
 
-function main(): void {
+async function main(): Promise<void> {
   log("════════════════════════════════════════════════════");
-  log("🤖 ClutchBet Daemon");
+  log(`🤖 ClutchBet Daemon — ${PROFILE_NAME}`);
   log("════════════════════════════════════════════════════");
 
-  const profiles = discoverProfiles();
   const date = today();
   log(`📅 Content cron: ${CONTENT_CRON} (Europe/Rome)`);
-  log(
-    `📋 Profiles: ${profiles.length > 0 ? profiles.map((p) => path.basename(p, ".yaml")).join(", ") : "none found"}`
-  );
+  log(`📋 Profile: ${PROFILE_PATH}`);
   log("");
 
   // Expire old content from previous days
@@ -215,21 +203,23 @@ function main(): void {
   }
 
   // Check for unpublished content from today (resume after crash/restart)
-  for (const profilePath of profiles) {
-    const name = path.basename(profilePath, ".yaml");
-    if (hasContentForDate(name, date)) {
-      const pending = getPendingContent(name, date);
-      if (pending.length > 0) {
-        log(`🔄 [${name}] Found ${pending.length} unpublished item(s) from today. Resuming...`);
-        runCommand("src/index.ts", ["content", `--profile=${profilePath}`, "--resume"])
-          .then((code) => {
-            if (code === 0) log(`✅ [${name}] Resume publishing completed.`);
-            else log(`⚠️  [${name}] Resume exited with code ${code}`);
-          })
-          .catch((err) => log(`❌ [${name}] Resume failed: ${err}`));
-      } else {
-        log(`✅ [${name}] All content for today already published.`);
+  if (hasContentForDate(PROFILE_NAME, date)) {
+    const pending = getPendingContent(PROFILE_NAME, date);
+    if (pending.length > 0) {
+      log(`🔄 Found ${pending.length} unpublished item(s) from today. Resuming...`);
+      try {
+        const code = await runCommand("src/index.ts", [
+          "content",
+          `--profile=${PROFILE_PATH}`,
+          "--resume",
+        ]);
+        if (code === 0) log(`✅ Resume publishing completed.`);
+        else log(`⚠️  Resume exited with code ${code}`);
+      } catch (err) {
+        log(`❌ Resume failed: ${err}`);
       }
+    } else {
+      log(`✅ All content for today already published.`);
     }
   }
 
@@ -265,7 +255,7 @@ function main(): void {
   // Graceful shutdown
   const shutdown = () => {
     log("\n🛑 Shutting down daemon...");
-    stopAllWatchers();
+    stopWatcher();
     process.exit(0);
   };
 

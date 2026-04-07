@@ -73,7 +73,7 @@ Il workflow esegue nell'ordine:
 
 1. **Scheduler** — Determina quali rubriche generare in base al giorno della settimana e alle regole del profilo
 2. **Data Fetcher** — Recupera le partite del giorno e le quote reali da API-Football. Se non ci sono partite, rimuove le rubriche che dipendono da dati live
-3. **Content Writer** — Genera un post per ogni rubrica usando l'LLM, rispettando tono, template e quote reali. Estrae le scommesse strutturate dal testo generato (per il tracking)
+3. **Content Writer** — Genera un post per ogni rubrica usando l'LLM, rispettando tono, template e quote reali. Estrae le scommesse strutturate dal testo generato (per il tracking). Per i formati con `generate_image: true`, genera un'immagine bet-slip con sfondo AI brandizzato (gpt-image-1 + Puppeteer overlay)
 4. **Reviewer** — Mostra ogni post in console. L'operatore può:
    - `s` = approva
    - `n` = rifiuta
@@ -174,7 +174,7 @@ Il **daemon** (`npm run daemon`) gestisce automaticamente il resume all'avvio e 
 ## Note operative
 
 - **Orari di pubblicazione**: il publisher attende automaticamente l'orario definito nel profilo per ogni rubrica. Lanciare `npm run content` con anticipo
-- **Restart sicuri**: `pm2 restart clutchbet` riprende automaticamente la pubblicazione dei post rimasti in coda
+- **Restart sicuri**: `pm2 restart il-capitano` riprende automaticamente la pubblicazione dei post rimasti in coda
 - **Senza API-Football**: il sistema funziona in modalità mock con partite e quote fittizie. Utile per test e sviluppo
 - **Free tier API-Football**: 100 richieste/giorno, sufficiente per uso singolo canale
 - **Modifiche al profilo**: modificare direttamente il file YAML in `config/profiles/`. Non serve rieseguire il parse

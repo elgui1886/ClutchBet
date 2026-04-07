@@ -75,7 +75,8 @@ A one-off utility that converts a human-written Markdown profile (e.g. `output/p
 | **Telegram Scraping** | GramJS (`telegram` on npm) | Telegram Client API — read messages from public and private channels |
 | **Telegram Publishing** | GramJS (`telegram` on npm) | Send generated posts (image + caption) to a target Telegram channel |
 | **LLM** | OpenAI SDK (`@langchain/openai`) | GPT-4o / GPT-4o-mini via GitHub Models endpoint for filtering, analysis, optimization, caption generation |
-| **Image Rendering** | Puppeteer (headless Chrome) | Renders HTML/CSS bet-slip template to PNG screenshot |
+| **Image Rendering** | Puppeteer (headless Chrome) | Renders HTML/CSS bet-slip template to PNG screenshot with AI-generated backgrounds |
+| **AI Backgrounds** | OpenAI gpt-image-1 | Generates unique branded background images per post via DALL-E |
 | **Publishing** | Telegram channel | Generated post sent directly to a configured Telegram channel |
 | **Sports Data API** | API-Football (api-sports.io) | Real fixtures, odds (1X2, Over/Under, Goal/NoGoal), match results for content generation and bet tracking |
 | **Bet Storage** | better-sqlite3 (SQLite) | Local database for bet tracking, result verification, performance analytics, and content publish queue |
@@ -200,7 +201,7 @@ This approach keeps each LLM call within context window limits while still produ
 - **Frequency**: Once per day (morning)
 - **Input**: Parsed YAML profile + real sports data from API-Football
 - **Output**: Generated posts saved to `output/content/`, published to Telegram at scheduled times
-- **Config**: Edit `config/content.yaml` (profile path, publish channel, league)
+- **Config**: Profile YAML contiene tutto (publishChannel, league, tone, branding, ecc.)
 - **Human-in-the-loop**: Each generated post must be approved before publishing
 
 ### Bet Results Checker
@@ -218,8 +219,10 @@ This approach keeps each LLM call within context window limits while still produ
 - **Retry**: Max 3 retries, 30-minute delay between retries on failure
 
 ### Daemon
-- **Trigger**: `npm run daemon` or `pm2 start ecosystem.config.cjs`
+- **Trigger**: `pm2 start ecosystem.config.cjs`
 - **Frequency**: Continuous — cron giornaliero alle 08:00 (configurabile via `DAEMON_CONTENT_CRON`)
-- **Behavior**: Per ogni profilo in `config/profiles/`, esegue content generation + avvia results watcher
+- **Architecture**: Un processo pm2 indipendente per ogni profilo in `config/profiles/`
+- **Behavior**: Ogni processo gestisce content generation + results watcher per il suo profilo
 - **Resume**: Al restart, riprende la pubblicazione dei post rimasti in coda (`content_queue`)
+- **Gestione**: `pm2 stop/start/restart <nome-profilo>` per controllare i profili singolarmente
 - **Config**: Timezone `Europe/Rome` (hardcoded)

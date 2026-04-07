@@ -34,12 +34,34 @@ tone:
   register: "Italiano corretto ma colloquiale. Come un amico competente che ti spiega le cose al bar, non come un professore."
   uppercase_rule: "MAI tutto maiuscolo per intere frasi. Maiuscolo solo per il nome dei format."
 
+branding:
+  primary_color: "#D4AF37"
+  accent_color: "#1a1a2e"
+  bg_prompt_hint: "Italian football stadium atmosphere at golden hour, dramatic lighting with gold and deep navy tones, captain's armband visual motif, premium and authoritative mood"
+  logo_svg: |
+    <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+      <!-- Captain's armband / shield -->
+      <defs>
+        <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stop-color="#F5D76E"/>
+          <stop offset="50%" stop-color="#D4AF37"/>
+          <stop offset="100%" stop-color="#AA8C2C"/>
+        </linearGradient>
+      </defs>
+      <path d="M50 8 L88 30 L88 65 Q88 82 50 95 Q12 82 12 65 L12 30 Z" fill="url(#gold)" stroke="#AA8C2C" stroke-width="2"/>
+      <path d="M50 16 L80 34 L80 62 Q80 76 50 87 Q20 76 20 62 L20 34 Z" fill="#1a1a2e"/>
+      <text x="50" y="58" text-anchor="middle" font-family="Georgia, serif" font-size="28" font-weight="bold" fill="#D4AF37">C</text>
+      <rect x="30" y="66" width="40" height="4" rx="2" fill="#D4AF37"/>
+    </svg>
+  tagline: "Non vendiamo sogni. Studiamo il campo."
+
 formats:
   - name: "La Lavagna"
     slug: "la-lavagna"
     frequency: "weekly_friday_saturday"
     publish_time: "14:00"
     type: "regular"
+    generate_image: true
     description: "Analisi tattica della giornata: 2-3 partite selezionate con ragionamento completo (statistiche, assenze, arbitro, trend). Da qui nascono le giocate del weekend."
     requires_data:
       - fixtures
@@ -92,6 +114,7 @@ formats:
     frequency: "daily_match_day"
     publish_time: "14:30"
     type: "regular"
+    generate_image: true
     description: "Una singola giocata ragionata con spiegazione breve (2-3 righe di motivazione + selezione + quota). Qualità > quantità."
     requires_data:
       - fixtures
@@ -146,6 +169,7 @@ formats:
     frequency: "2-3x_week"
     publish_time: "15:00"
     type: "regular"
+    generate_image: true
     description: "Analisi su arbitri, diffidati, giocatori ad alto tasso di falli. Dato + ragionamento, non solo 'prendi il giallo di X'."
     requires_data:
       - referee_stats
@@ -186,6 +210,7 @@ formats:
     frequency: "weekly_sunday_evening"
     publish_time: "22:00"
     type: "regular"
+    generate_image: false
     description: "Recap settimanale: giocate proposte, risultati (vinte e perse), % di successo, breve commento. Trasparenza totale."
     requires_data: []
     template: |
@@ -223,6 +248,7 @@ formats:
     frequency: "2-3x_week"
     publish_time: "10:00"
     type: "regular"
+    generate_image: false
     description: "Micro-contenuto educativo (60-90 parole): come funziona l'over/under, cos'è il value betting, come si legge una quota, gestione bankroll."
     requires_data: []
     template: |
@@ -266,6 +292,7 @@ formats:
     frequency: "big_match"
     publish_time: "14:00"
     type: "special"
+    generate_image: true
     description: "Multipla ad alta quota (Q.15+) su partite di cartello. Con analisi dettagliata di ogni selezione e avviso esplicito: 'questa è ad alto rischio, gioca solo quello che puoi perdere'."
     requires_data:
       - fixtures
@@ -307,6 +334,7 @@ formats:
     frequency: "derby"
     publish_time: "14:00"
     type: "special"
+    generate_image: false
     description: "Contenuto speciale dedicato: storia del confronto, statistiche recenti, pronostico ragionato."
     requires_data: []
     template: |
@@ -325,6 +353,7 @@ formats:
     frequency: "monthly"
     publish_time: "10:00"
     type: "special"
+    generate_image: false
     description: "Report completo: numero giocate, vinte, perse, ROI, format più redditizi. Pubblicato nel canale free."
     requires_data: []
     template: |
