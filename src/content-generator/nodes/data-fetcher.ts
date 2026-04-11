@@ -1,51 +1,33 @@
-import type { ContentStateType, Fixture, FixtureOdds } from "../state.js";
+import type { ContentStateType, Fixture } from "../state.js";
 
-const API_FOOTBALL_BASE = "https://v3.football.api-sports.io";
+// football-data.org — free tier, covers current Serie A season
+const FOOTBALL_DATA_BASE = "https://api.football-data.org/v4";
+const SERIE_A_CODE = "SA";
 
-interface ApiFixture {
-  fixture: {
-    id: number;
-    date: string;
-    venue?: { name?: string };
-    referee?: string;
-  };
-  league: { name: string };
-  teams: {
-    home: { name: string };
-    away: { name: string };
-  };
-}
-
-interface ApiOddsValue {
-  value: string;
-  odd: string;
-}
-
-interface ApiOddsBet {
+interface FDMatch {
   id: number;
-  name: string;
-  values: ApiOddsValue[];
+  utcDate: string;
+  status: string;
+  venue?: string;
+  homeTeam: { name: string; shortName?: string };
+  awayTeam: { name: string; shortName?: string };
+  competition: { name: string };
 }
 
-interface ApiOddsBookmaker {
-  id: number;
-  name: string;
-  bets: ApiOddsBet[];
-}
-
-interface ApiOddsResponse {
-  fixture: { id: number };
-  bookmakers: ApiOddsBookmaker[];
+interface FDMatchesResponse {
+  matches: FDMatch[];
+  errorCode?: number;
+  message?: string;
 }
 
 /**
- * Data-fetcher node — fetches today's fixtures from API-Football.
+ * Data-fetcher node — fetches today's fixtures from football-data.org.
  * Falls back gracefully if the API key is missing or the request fails.
  */
 export async function dataFetcherNode(
   state: ContentStateType
 ): Promise<Partial<ContentStateType>> {
-  const { date, leagueId, leagueSeason, scheduledFormats, profile } = state;
+  const { date, scheduledFormats, profile } = state;
 
   // Check if any scheduled format requires fixture data
   const formatsRequiringData = profile?.formats.filter(
@@ -61,63 +43,65 @@ export async function dataFetcherNode(
     return { fixtures: [] };
   }
 
-  const apiKey = process.env.FOOTBALL_API_KEY;
+  const apiKey = process.env.FOOTBALL_DATA_API_KEY;
 
   if (!apiKey) {
     console.log(
-      "⚠️  FOOTBALL_API_KEY not set in .env. Using mock fixtures for development.\n" +
-        "   Set FOOTBALL_API_KEY to get real fixture data from API-Football."
+      "⚠️  FOOTBALL_DATA_API_KEY not set in .env. Using mock fixtures for development.\n" +
+        "   Register at football-data.org to get a free API key."
     );
     return { fixtures: getMockFixtures(date) };
   }
 
   try {
-    console.log(`⚽ Fetching fixtures for ${date} (League ${leagueId}, Season ${leagueSeason})...`);
+    console.log(`⚽ Fetching fixtures for ${date} (Serie A — football-data.org)...`);
 
-    const url = new URL(`${API_FOOTBALL_BASE}/fixtures`);
-    url.searchParams.set("league", String(leagueId));
-    url.searchParams.set("season", String(leagueSeason));
-    url.searchParams.set("date", date);
+    const url = new URL(`${FOOTBALL_DATA_BASE}/competitions/${SERIE_A_CODE}/matches`);
+    url.searchParams.set("dateFrom", date);
+    url.searchParams.set("dateTo", date);
 
     const response = await fetch(url.toString(), {
       headers: {
-        "x-apisports-key": apiKey,
+        "X-Auth-Token": apiKey,
       },
     });
 
     if (!response.ok) {
-      console.error(`❌ API-Football responded with ${response.status}: ${response.statusText}`);
+      const body = await response.text().catch(() => "");
+      console.error(`❌ football-data.org responded with ${response.status}: ${body}`);
       console.log("   Falling back to mock fixtures.");
       return { fixtures: getMockFixtures(date) };
     }
 
-    const data = (await response.json()) as { response: ApiFixture[] };
-    const fixtureIds = data.response.map((item) => item.fixture.id);
+    const data = (await response.json()) as FDMatchesResponse;
 
-    // Fetch odds for all fixtures
-    const oddsMap = await fetchOdds(apiKey, fixtureIds);
+    if (data.errorCode) {
+      console.error(`❌ football-data.org error: ${data.message}`);
+      console.log("   Falling back to mock fixtures.");
+      return { fixtures: getMockFixtures(date) };
+    }
 
-    const fixtures: Fixture[] = data.response.map((item) => ({
-      homeTeam: item.teams.home.name,
-      awayTeam: item.teams.away.name,
-      league: item.league.name,
-      date: date,
-      time: new Date(item.fixture.date).toLocaleTimeString("it-IT", {
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      }),
-      venue: item.fixture.venue?.name,
-      referee: item.fixture.referee ?? undefined,
-      odds: oddsMap.get(item.fixture.id),
-    }));
+    const fixtures: Fixture[] = data.matches
+      .filter((m) => ["SCHEDULED", "TIMED", "IN_PLAY", "PAUSED", "FINISHED"].includes(m.status))
+      .map((m) => ({
+        homeTeam: m.homeTeam.name,
+        awayTeam: m.awayTeam.name,
+        league: m.competition.name,
+        date,
+        time: new Date(m.utcDate).toLocaleTimeString("it-IT", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+          timeZone: "Europe/Rome",
+        }),
+        venue: m.venue ?? undefined,
+        referee: undefined, // not available on free tier
+        odds: undefined,    // not available on free tier
+      }));
 
     console.log(`✅ Found ${fixtures.length} fixture(s) for ${date}`);
     for (const f of fixtures) {
-      const oddsStr = f.odds
-        ? ` — 1: ${f.odds.home} | X: ${f.odds.draw} | 2: ${f.odds.away}`
-        : " — odds: n/a";
-      console.log(`   ${f.homeTeam} vs ${f.awayTeam} — ${f.time}${oddsStr}`);
+      console.log(`   ${f.homeTeam} vs ${f.awayTeam} — ${f.time}`);
     }
 
     // Filter scheduled formats: if no fixtures, drop formats that require data
@@ -177,100 +161,4 @@ function getMockFixtures(date: string): Fixture[] {
       odds: { home: 2.20, draw: 3.30, away: 3.10, over25: 1.65, under25: 2.20, btts_yes: 1.60, btts_no: 2.25, bookmaker: "Mock" },
     },
   ];
-}
-
-/**
- * Fetches odds for a list of fixture IDs from API-Football.
- * Returns a Map of fixtureId → FixtureOdds.
- */
-async function fetchOdds(
-  apiKey: string,
-  fixtureIds: number[]
-): Promise<Map<number, FixtureOdds>> {
-  const oddsMap = new Map<number, FixtureOdds>();
-
-  if (fixtureIds.length === 0) return oddsMap;
-
-  console.log(`📊 Fetching odds for ${fixtureIds.length} fixture(s)...`);
-
-  // API-Football /odds supports one fixture at a time
-  for (const fixtureId of fixtureIds) {
-    try {
-      const url = new URL(`${API_FOOTBALL_BASE}/odds`);
-      url.searchParams.set("fixture", String(fixtureId));
-
-      const response = await fetch(url.toString(), {
-        headers: { "x-apisports-key": apiKey },
-      });
-
-      if (!response.ok) {
-        console.warn(`   ⚠️  Odds fetch failed for fixture ${fixtureId}: ${response.status}`);
-        continue;
-      }
-
-      const data = (await response.json()) as { response: ApiOddsResponse[] };
-
-      if (data.response.length === 0) continue;
-
-      const bookmakers = data.response[0].bookmakers;
-      if (bookmakers.length === 0) continue;
-
-      // Prefer well-known bookmakers, fall back to the first available
-      const preferred = ["Bet365", "Unibet", "1xBet", "Bwin"];
-      const bookmaker =
-        bookmakers.find((b) => preferred.includes(b.name)) ?? bookmakers[0];
-
-      const odds = parseBookmakerOdds(bookmaker);
-      if (odds) {
-        odds.bookmaker = bookmaker.name;
-        oddsMap.set(fixtureId, odds);
-      }
-
-      // Rate limiting: small delay between requests
-      await new Promise((r) => setTimeout(r, 300));
-    } catch {
-      console.warn(`   ⚠️  Failed to fetch odds for fixture ${fixtureId}`);
-    }
-  }
-
-  console.log(`✅ Odds fetched for ${oddsMap.size}/${fixtureIds.length} fixture(s)\n`);
-  return oddsMap;
-}
-
-/**
- * Parses odds from a single bookmaker's bet list.
- */
-function parseBookmakerOdds(bookmaker: ApiOddsBookmaker): FixtureOdds | null {
-  const result: Partial<FixtureOdds> = {};
-
-  for (const bet of bookmaker.bets) {
-    // Match Winner (1X2)
-    if (bet.name === "Match Winner") {
-      for (const v of bet.values) {
-        if (v.value === "Home") result.home = parseFloat(v.odd);
-        if (v.value === "Draw") result.draw = parseFloat(v.odd);
-        if (v.value === "Away") result.away = parseFloat(v.odd);
-      }
-    }
-    // Over/Under 2.5
-    if (bet.name === "Goals Over/Under" || bet.name === "Over/Under 2.5") {
-      for (const v of bet.values) {
-        if (v.value === "Over 2.5") result.over25 = parseFloat(v.odd);
-        if (v.value === "Under 2.5") result.under25 = parseFloat(v.odd);
-      }
-    }
-    // Both Teams Score (Goal/NoGoal)
-    if (bet.name === "Both Teams Score") {
-      for (const v of bet.values) {
-        if (v.value === "Yes") result.btts_yes = parseFloat(v.odd);
-        if (v.value === "No") result.btts_no = parseFloat(v.odd);
-      }
-    }
-  }
-
-  if (result.home == null || result.draw == null || result.away == null) {
-    return null;
-  }
-
-  return result as FixtureOdds;
 }
