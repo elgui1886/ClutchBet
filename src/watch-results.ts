@@ -1,4 +1,4 @@
-import "dotenv/config";
+import dotenv from "dotenv"; dotenv.config({ override: true });
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline";
@@ -534,6 +534,8 @@ async function generateUpdatePost(
   const model = new ChatOpenAI({
     modelName: process.env.OPENAI_MODEL ?? "gpt-4o",
     temperature: 0.7,
+    openAIApiKey: process.env.OPENAI_API_KEY,
+    configuration: { baseURL: process.env.OPENAI_BASE_URL },
   });
 
   const response = await model.invoke([new HumanMessage(prompt)]);

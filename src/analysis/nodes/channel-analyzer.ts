@@ -35,6 +35,8 @@ export async function channelAnalyzerNode(
   const model = new ChatOpenAI({
     modelName: process.env.OPENAI_MODEL ?? "gpt-4o",
     temperature: 0.3,
+    openAIApiKey: process.env.OPENAI_API_KEY,
+    configuration: { baseURL: process.env.OPENAI_BASE_URL },
   });
 
   // Step 1: Chunk posts into batches

@@ -57,6 +57,8 @@ export async function scraperNode(
   const model = new ChatOpenAI({
     modelName: process.env.OPENAI_MODEL ?? "gpt-4o",
     temperature: 0,
+    openAIApiKey: process.env.OPENAI_API_KEY,
+    configuration: { baseURL: process.env.OPENAI_BASE_URL },
   });
 
   const filterPrompt = loadPrompt(FILTER_PROMPT_PATH);

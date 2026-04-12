@@ -1,4 +1,4 @@
-import "dotenv/config";
+import dotenv from "dotenv"; dotenv.config({ override: true });
 import cron from "node-cron";
 import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
