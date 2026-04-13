@@ -111,6 +111,11 @@ async function main() {
   // Generate update post
   const updateText = await generateUpdatePost(profile, resolved, schedine);
 
+  if (!updateText) {
+    console.log("\nℹ️  Nessuna schedina da pubblicare (né vincite né quasi-vincite). Skipping update post.");
+    process.exit(0);
+  }
+
   console.log("\n" + "=".repeat(60));
   console.log("📝 UPDATE POST\n");
   console.log(updateText);
@@ -273,8 +278,25 @@ async function generateUpdatePost(
   const forbiddenPhrases = profile.tone.forbidden_phrases.map((p) => `- "${p}"`).join("\n");
   const lossPrinciples = profile.losses.principles.map((p, i) => `${i + 1}. ${p}`).join("\n");
 
-  // Format newly resolved bets
-  const newlyResolved = resolved
+  // Filter schedine: only show WINS and NEAR-MISSES (lost by exactly 1 event)
+  const publishableSchedine = schedine.filter((s) => {
+    if (s.status === "vinta" || s.status === "in_corsa" || s.status === "pending") return true;
+    if (s.status === "bruciata") {
+      const lostCount = s.bets.filter((b) => b.result === "lost").length;
+      return lostCount === 1; // Near-miss: lost by exactly 1 event
+    }
+    return false;
+  });
+
+  if (publishableSchedine.length === 0) {
+    return ""; // Nothing worth publishing
+  }
+
+  // Format newly resolved bets (only from publishable schedine)
+  const publishableSlipIds = new Set(publishableSchedine.map((s) => s.slipId));
+  const publishableResolved = resolved.filter((b) => publishableSlipIds.has(b.slipId));
+
+  const newlyResolved = publishableResolved
     .map((bet) => {
       const icon = bet.result === "won" ? "✅" : bet.result === "lost" ? "❌" : "⚪";
       return `${icon} ${bet.homeTeam} vs ${bet.awayTeam} (${bet.matchScore}) — ${bet.selection} @ ${bet.odds} → ${bet.result}`;
@@ -282,7 +304,7 @@ async function generateUpdatePost(
     .join("\n");
 
   // Format schedine status
-  const schedineStatus = schedine
+  const schedineStatus = publishableSchedine
     .map((s) => {
       const type = s.bets.length === 1 ? "Singola" : `Multipla (${s.bets.length} selezioni, quota totale ${s.totalOdds})`;
       const statusLabel = {

@@ -20,7 +20,7 @@ const CONTENT_PROMPT_PATH = path.resolve("prompts", "content-post.md");
 /** Formats that contain trackable bets (require fixture/odds data) */
 function hasBets(format: FormatConfig): boolean {
   return format.requires_data.some((d) =>
-    ["fixtures", "odds", "referee_stats", "player_cards"].includes(d)
+    ["fixtures", "odds", "referee_stats", "player_cards", "tennis_fixtures"].includes(d)
   );
 }
 
@@ -324,6 +324,13 @@ function buildPrompt(
 
   const examplePostsSection = buildExamplePostsSection(format);
 
+  // Build affiliate rules if the format is "promo-del-giorno" and config has affiliate info
+  const affiliateConfig = profile.config?.affiliate;
+  let affiliateRules = "";
+  if (format.slug === "promo-del-giorno" && affiliateConfig) {
+    affiliateRules = `\n### Link affiliato\n- Sito: **${affiliateConfig.name}**\n- Link: ${affiliateConfig.link}\n- CTA suggerita: "${affiliateConfig.cta}"\n\nInserisci il link in modo naturale, come un suggerimento da amico. NON essere aggressivo o pressante. Esempio: "Se volete provare, su ${affiliateConfig.name} c'è un bonus interessante 👉 ${affiliateConfig.link}"\n`;
+  }
+
   return template
     .replace("{profile_name}", profile.profile.name)
     .replace("{claim}", profile.profile.claim)
@@ -339,7 +346,8 @@ function buildPrompt(
     .replace("{format_description}", format.description)
     .replace("{format_template}", format.template)
     .replace("{example_posts_section}", examplePostsSection)
-    .replace("{sports_data}", sportsData);
+    .replace("{sports_data}", sportsData)
+    .replace("{affiliate_rules}", affiliateRules);
 }
 
 function buildExamplePostsSection(format: FormatConfig): string {
@@ -360,7 +368,7 @@ function buildSportsData(
   pastTopics: Array<{ date: string; topic: string }> = []
 ): string {
   if (format.requires_data.length === 0) {
-    let base = "Nessun dato sportivo necessario per questo format. Genera contenuto educativo originale basato sulla tua conoscenza del betting sportivo.";
+    let base = "Nessun dato sportivo necessario per questo format. Genera contenuto originale basato sulla tua conoscenza del betting sportivo.";
 
     if (pastTopics.length > 0) {
       const topicList = pastTopics
@@ -372,37 +380,59 @@ function buildSportsData(
     return base;
   }
 
-  if (fixtures.length === 0) {
-    return "Nessuna partita disponibile oggi. Genera contenuto basato sulle prossime partite in programma o su dati generali.";
+  // Determine which fixtures to show based on format requirements
+  const isTennisFormat = format.requires_data.includes("tennis_fixtures");
+  const relevantFixtures = isTennisFormat
+    ? fixtures.filter((f) => f.sport === "tennis")
+    : fixtures.filter((f) => f.sport !== "tennis");
+
+  if (relevantFixtures.length === 0) {
+    const sportName = isTennisFormat ? "tennis" : "calcio";
+    return `Nessuna partita di ${sportName} disponibile oggi. Genera contenuto basato sulle prossime partite in programma o su dati generali.`;
   }
 
-  const lines: string[] = ["### Partite di oggi\n"];
-
-  for (const fixture of fixtures) {
-    lines.push(`**${fixture.homeTeam} vs ${fixture.awayTeam}**`);
-    lines.push(`- Campionato: ${fixture.league}`);
-    lines.push(`- Data: ${fixture.date}`);
-    lines.push(`- Ora: ${fixture.time}`);
-    if (fixture.venue) {
-      lines.push(`- Stadio: ${fixture.venue}`);
-    }
-    if (fixture.referee) {
-      lines.push(`- Arbitro: ${fixture.referee}`);
-    }
-    if (fixture.odds) {
-      const o = fixture.odds;
-      lines.push(`- Quote 1X2: **1** ${o.home.toFixed(2)} | **X** ${o.draw.toFixed(2)} | **2** ${o.away.toFixed(2)}`);
-      if (o.over25 != null && o.under25 != null) {
-        lines.push(`- Over/Under 2.5: **Over** ${o.over25.toFixed(2)} | **Under** ${o.under25.toFixed(2)}`);
+  const lines: string[] = [];
+  
+  if (isTennisFormat) {
+    lines.push("### Match di tennis di oggi\n");
+    for (const fixture of relevantFixtures) {
+      lines.push(`**${fixture.homeTeam} vs ${fixture.awayTeam}**`);
+      lines.push(`- Torneo: ${fixture.league}`);
+      lines.push(`- Ora: ${fixture.time}`);
+      if (fixture.odds) {
+        const o = fixture.odds;
+        lines.push(`- Quote: **${fixture.homeTeam}** ${o.home.toFixed(2)} | **${fixture.awayTeam}** ${o.away.toFixed(2)}`);
       }
-      if (o.btts_yes != null && o.btts_no != null) {
-        lines.push(`- Goal/NoGoal: **Goal** ${o.btts_yes.toFixed(2)} | **NoGoal** ${o.btts_no.toFixed(2)}`);
-      }
-      if (o.bookmaker) {
-        lines.push(`- Fonte quote: ${o.bookmaker}`);
-      }
+      lines.push("");
     }
-    lines.push("");
+  } else {
+    lines.push("### Partite di oggi\n");
+    for (const fixture of relevantFixtures) {
+      lines.push(`**${fixture.homeTeam} vs ${fixture.awayTeam}**`);
+      lines.push(`- Campionato: ${fixture.league}`);
+      lines.push(`- Data: ${fixture.date}`);
+      lines.push(`- Ora: ${fixture.time}`);
+      if (fixture.venue) {
+        lines.push(`- Stadio: ${fixture.venue}`);
+      }
+      if (fixture.referee) {
+        lines.push(`- Arbitro: ${fixture.referee}`);
+      }
+      if (fixture.odds) {
+        const o = fixture.odds;
+        lines.push(`- Quote 1X2: **1** ${o.home.toFixed(2)} | **X** ${o.draw.toFixed(2)} | **2** ${o.away.toFixed(2)}`);
+        if (o.over25 != null && o.under25 != null) {
+          lines.push(`- Over/Under 2.5: **Over** ${o.over25.toFixed(2)} | **Under** ${o.under25.toFixed(2)}`);
+        }
+        if (o.btts_yes != null && o.btts_no != null) {
+          lines.push(`- Goal/NoGoal: **Goal** ${o.btts_yes.toFixed(2)} | **NoGoal** ${o.btts_no.toFixed(2)}`);
+        }
+        if (o.bookmaker) {
+          lines.push(`- Fonte quote: ${o.bookmaker}`);
+        }
+      }
+      lines.push("");
+    }
   }
 
   lines.push(

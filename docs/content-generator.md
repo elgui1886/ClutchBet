@@ -15,8 +15,9 @@ Guida pratica per configurare e utilizzare il workflow di generazione automatica
 | `TELEGRAM_SESSION` | Sì | Stringa di sessione (genera con `npm run setup-telegram`) |
 | `OPENAI_API_KEY` | Sì | GitHub PAT (o chiave OpenAI) per la generazione dei contenuti |
 | `OPENAI_BASE_URL` | Sì | Endpoint API (es. `https://models.inference.ai.azure.com` per GitHub Models) |
-| `THE_ODDS_API_KEY` | Consigliata | Chiave The Odds API (the-odds-api.com) — fonte primaria per fixtures + quote. Free: 500 req/mese |
-| `FOOTBALL_DATA_API_KEY` | No | Chiave football-data.org — fallback per fixtures senza quote |
+| `OPENAI_MODEL` | No | Modello LLM (default: `gpt-4o`) |
+| `THE_ODDS_API_KEY` | Consigliata | Chiave The Odds API (the-odds-api.com) — fonte primaria per fixtures + quote (calcio + tennis). Free: 500 req/mese |
+| `FOOTBALL_DATA_API_KEY` | No | Chiave football-data.org — fallback per fixtures calcio senza quote |
 | `FOOTBALL_API_KEY` | No | Chiave API-Football (api-sports.io) — usata solo per verifica risultati scommesse |
 
 ## Setup iniziale (una tantum)
@@ -76,8 +77,8 @@ npm run content -- --profile=config/profiles/il-capitano.yaml
 Il workflow esegue nell'ordine:
 
 1. **Scheduler** — Determina quali rubriche generare in base al giorno della settimana e alle regole del profilo
-2. **Data Fetcher** — Recupera le partite del giorno e le quote reali da The Odds API (con fallback su football-data.org per solo fixtures). Filtra le partite già iniziate/concluse. Se non ci sono partite, rimuove le rubriche che dipendono da dati live
-3. **Content Writer** — Genera un post per ogni rubrica usando l'LLM, rispettando tono, template e quote reali. Estrae le scommesse strutturate dal testo generato (per il tracking). Per i formati con `generate_image: true`, genera un'immagine bet-slip con sfondo AI brandizzato (gpt-image-1 + Puppeteer overlay)
+2. **Data Fetcher** — Recupera le partite del giorno e le quote reali da The Odds API (calcio Serie A + tennis Grand Slams ATP/WTA), con fallback su football-data.org per solo fixtures calcio. Filtra le partite già iniziate/concluse. Se non ci sono partite, rimuove le rubriche che dipendono da dati live
+3. **Content Writer** — Genera un post per ogni rubrica usando l'LLM, rispettando tono, template e quote reali. Estrae le scommesse strutturate dal testo generato (per il tracking). Per i formati con `generate_image: true`, genera un'immagine bet-slip con sfondo AI brandizzato (gpt-image-1 + Puppeteer overlay). Per i formati affiliati (es. `promo-del-giorno`), inietta link affiliato e CTA nel prompt
 4. **Reviewer** — Mostra ogni post in console. L'operatore può:
    - `s` = approva
    - `n` = rifiuta

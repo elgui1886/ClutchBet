@@ -63,13 +63,17 @@ Ogni processo pm2:
 |---|---|
 | 08:00 | Cron scatta → content generation |
 | 08:02 | Scheduler decide quali rubriche generare oggi |
-| 08:03 | Data Fetcher scarica partite + quote da The Odds API (fallback: football-data.org) |
+| 08:03 | Data Fetcher scarica partite + quote da The Odds API (calcio + tennis; fallback: football-data.org) |
 | 08:04 | Content Writer genera i post con LLM + immagini AI |
-| 08:05 | Publisher pubblica (o attende gli orari definiti nel profilo) |
-| 14:30 | Pubblica "Giocata del Giorno" (orario dinamico: 1h prima del primo kickoff) |
-| 15:00 | Pubblica "Cartellino Tattico" (orario dinamico: +10 min dal precedente) |
+| 08:05 | Publisher pubblica i formati senza scommesse (Pillola, Promo) o attende gli orari dinamici |
+| 11:00 | Pubblica "Promo del Giorno" (orario fisso) |
+| 12:00 | Pubblica "Tennis Pick" (orario fisso) |
+| ~14:00 | Pubblica "Schedina del Giorno" (orario dinamico: 1h prima del primo kickoff) |
+| ~14:10 | Pubblica "Marcatori" (orario dinamico: +10 min) |
+| ~14:20 | Pubblica "Cartellini" (orario dinamico: +20 min) |
+| ~14:30 | Pubblica "La Combo" (orario dinamico: +30 min) |
 | 08:10 | Results Watcher avviato — schedula i check per ogni partita (API-Football/api-sports.io) |
-| ~22:15 | Partite finite → valuta scommesse → genera e pubblica recap |
+| ~22:15 | Partite finite → valuta scommesse → genera e pubblica recap (solo vincite e quasi-vincite) |
 | 08:00 domani | Ripete tutto da capo |
 
 ## Prerequisiti sul VPS
@@ -147,11 +151,12 @@ TELEGRAM_SESSION=tua_stringa_di_sessione
 
 OPENAI_API_KEY=tuo_github_pat_o_chiave_openai
 OPENAI_BASE_URL=https://models.inference.ai.azure.com
+# OPENAI_MODEL=gpt-4o                                   # opzionale, default: gpt-4o
 
 # Sports Data APIs
-THE_ODDS_API_KEY=tua_chiave_the_odds_api
-# FOOTBALL_DATA_API_KEY=tua_chiave_football_data    # fallback (opzionale)
-# FOOTBALL_API_KEY=tua_chiave_api_football           # solo per verifica risultati
+THE_ODDS_API_KEY=tua_chiave_the_odds_api                 # primaria: fixtures + quote (calcio + tennis)
+# FOOTBALL_DATA_API_KEY=tua_chiave_football_data          # fallback fixtures calcio (opzionale)
+# FOOTBALL_API_KEY=tua_chiave_api_football                # solo per verifica risultati (opzionale)
 
 # Opzionale: orario del cron (default: 08:00 ogni giorno)
 # Formato: cron standard (minuto ora giorno mese giorno_settimana)
@@ -316,7 +321,7 @@ Il cron usa il timezone `Europe/Rome` (hardcoded nel daemon). Le ore nel cron so
 1. Controlla i log: `pm2 logs il-capitano`
 2. Verifica che `reviewBeforePublish: false` nella sezione `config:` del profilo YAML
 3. Verifica che `publishChannel` sia configurato nella sezione `config:` del profilo YAML
-4. Verifica che `FOOTBALL_API_KEY` sia nel `.env` (senza: usa dati fittizi)
+4. Verifica che `THE_ODDS_API_KEY` sia nel `.env` (senza: il sistema prova il fallback football-data.org; senza nessuna chiave, le rubriche con dati vengono saltate)
 
 ### Puppeteer non funziona sul server
 

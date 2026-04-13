@@ -18,9 +18,9 @@ A one-off analysis tool that:
 
 ### Content Generator Workflow (`npm run content`)
 An editorial content pipeline that turns a **profile** (editorial line definition) into real, publishable Telegram posts:
-1. **Fetches** real sports data (fixtures, odds) from external APIs (The Odds API + football-data.org fallback)
-2. **Schedules** which editorial formats to generate today based on the profile's editorial plan, the day of the week, and available fixtures
-3. **Generates** post content via LLM, strictly following the profile's tone of voice, format templates, and real sports data
+1. **Fetches** real sports data (fixtures, odds) from external APIs (The Odds API for football Serie A + tennis Grand Slams, football-data.org as fallback for fixtures only)
+2. **Schedules** which editorial formats to generate today based on the profile's editorial plan, the day of the week, and available fixtures. Supports multiple rubric types: schedine, marcatori, cartellini, combo, tennis, lavagna tattica, pillola, recap, promo affiliata
+3. **Generates** post content via LLM, strictly following the profile's tone of voice, format templates, and real sports data. For affiliate formats, injects affiliate link/CTA into the prompt
 4. **Reviews** generated content with human-in-the-loop approval before publishing
 5. **Publishes** approved posts to a configured Telegram channel
 
@@ -29,8 +29,9 @@ A command that verifies the outcome of published bets:
 1. **Reads** pending (unresolved) bets from the SQLite database (`data/clutchbet.db`)
 2. **Fetches** match results from API-Football (api-sports.io) for finished matches
 3. **Evaluates** each bet (supports 1X2, Over/Under, Goal/NoGoal, Double Chance, Multigol)
-4. **Generates** a recap post via LLM, following the profile's tone of voice and loss management rules
-5. **Publishes** the recap to Telegram (with human approval)
+4. **Filters for publication**: publishes a recap only for winning schedine, in-progress schedine, or near-misses (lost by exactly 1 event). Completely wrong schedine are silently discarded
+5. **Generates** a recap post via LLM, following the profile's tone of voice and loss management rules
+6. **Publishes** the recap to Telegram (with human approval)
 
 ### Bet Results Watcher (`npm run watch-results`)
 A daemon/polling version of `check-results` that runs continuously:
@@ -78,8 +79,8 @@ A one-off utility that converts a human-written Markdown profile (e.g. `output/p
 | **Image Rendering** | Puppeteer (headless Chrome) | Renders HTML/CSS bet-slip template to PNG screenshot with AI-generated backgrounds |
 | **AI Backgrounds** | OpenAI gpt-image-1 | Generates unique branded background images per post via DALL-E |
 | **Publishing** | Telegram channel | Generated post sent directly to a configured Telegram channel |
-| **Sports Data API (fixtures + odds)** | The Odds API (the-odds-api.com) | Primary source for upcoming fixtures and odds (h2h 1X2, totals Over/Under 2.5). Free tier: 500 req/month |
-| **Sports Data API (fallback)** | football-data.org | Fallback for fixtures only (no odds). Free tier, no key required for basic usage |
+| **Sports Data API (fixtures + odds)** | The Odds API (the-odds-api.com) | Primary source for upcoming fixtures and odds. Football (Serie A): h2h 1X2, totals Over/Under 2.5. Tennis (Grand Slams ATP/WTA): h2h. Free tier: 500 req/month |
+| **Sports Data API (fallback)** | football-data.org | Fallback for football fixtures only (no odds). Free tier, no key required for basic usage |
 | **Sports Data API (results)** | API-Football (api-sports.io) | Match results for bet verification and recap generation |
 | **Bet Storage** | better-sqlite3 (SQLite) | Local database for bet tracking, result verification, performance analytics, and content publish queue |
 | **Trigger** | CLI (`tsx`) | Manual execution via `npm start` |

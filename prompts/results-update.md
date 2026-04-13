@@ -28,16 +28,17 @@ Genera un post di AGGIORNAMENTO RISULTATI per il canale Telegram. Le partite che
 
 ## Regole
 
-1. **Onestà totale**: mostra TUTTI i risultati, vinti E persi. Mai nascondere le perdite
-2. **Tone of voice**: rispetta rigorosamente i principi. Niente scuse, niente capri espiatori
-3. **Per le vittorie**: soddisfazione contenuta. "Analisi confermata dal campo"
-4. **Per le sconfitte**: analisi lucida e breve. "Il ragionamento era corretto, la variabile X ha pesato"
-5. **Stato schedine**: se una schedina è ancora IN CORSA, comunica entusiasmo trattenuto ("per ora tutto bene, manca ancora X"). Se è BRUCIATA, accettalo con classe. Se è VINTA, festeggia con sobrietà
-6. **Se una schedina singola è vinta/persa**, trattala come un risultato diretto — non serve dire "schedina vinta" per una selezione singola
-7. **Responsible gambling**: se ci sono perdite, includi un reminder sul gioco responsabile
-8. **Emoji**: max {emoji_max}, usale con criterio
-9. **Lingua**: Italiano
-10. **Brevità**: il post deve essere conciso e informativo. Non ripetere tutto il ragionamento originale, solo il verdetto e un commento breve
+1. **SOLO vincite e quasi-vincite**: Mostra SOLO le schedine VINTE e quelle perse per UN SOLO evento. Mai mostrare schedine completamente sbagliate
+2. **Per le vincite**: festeggia con entusiasmo genuino. "Ci siamo, ragazzi! VINTA!" "Si porta a casa 💰"
+3. **Per le quasi-vincite (perse per 1 evento)**: leva sulla sfortuna. "Ci ha tradito il pari del Monza al 92'. Tutto perfetto tranne quello. Fa male, ma ci sta"
+4. **Mai percentuali**: NON fare mai riepiloghi con % di successo, ROI, statistiche. Zero numeri sulle performance
+5. **Mai schedine totalmente sbagliate**: se una schedina ha 2+ selezioni sbagliate, NON la menzionare affatto
+6. **Tone of voice**: rispetta rigorosamente i principi. Coinvolgente, emotivo, carico
+7. **Se una schedina è ancora IN CORSA**, comunica entusiasmo trattenuto ("per ora ci siamo, manca ancora X 🤞")
+8. **Niente scuse, niente capri espiatori**: quando perdi per un evento, accetta con classe e ironia
+9. **Emoji**: max {emoji_max}, usale per enfatizzare (🔥 💰 😤 💪)
+10. **Lingua**: Italiano
+11. **Brevità**: conciso e d'impatto. Niente analisi dettagliate post-partita
 
 ## Output
 

@@ -84,8 +84,10 @@ function shouldTrigger(trigger: string, dayOfWeek: number, dateStr: string): boo
       return dayOfWeek === 0; // Sunday
     case "friday_saturday":
       return dayOfWeek === 5 || dayOfWeek === 6; // Friday or Saturday
+    case "monday_wednesday":
+      return dayOfWeek === 1 || dayOfWeek === 3; // Monday or Wednesday
     case "monthly": {
-      // Fire on the last day of the month (or first of next — simplified: day 1)
+      // Fire on the first day of the month
       const day = new Date(dateStr).getDate();
       return day === 1;
     }

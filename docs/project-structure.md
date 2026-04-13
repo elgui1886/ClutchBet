@@ -261,7 +261,7 @@ Saves the analysis document to `output/analysis/<channel-name>.md`. Sanitizes ch
 LangGraph state for content generation:
 
 - `FixtureOdds` — `{ home, draw, away, over25?, under25?, btts_yes?, btts_no?, bookmaker? }`
-- `Fixture` — `{ homeTeam, awayTeam, league, date, time, venue?, referee?, odds? }`
+- `Fixture` — `{ homeTeam, awayTeam, league, date, time, venue?, referee?, odds?, sport?: "football" | "tennis" }`
 - `BetSelection` — `{ homeTeam, awayTeam, league, kickoff, selection, odds }` — extracted from generated content for tracking
 - `BrandingConfig` — `{ primary_color, accent_color, bg_prompt_hint, logo_svg?, tagline? }` — visual identity per profile
 - `FormatConfig` — includes `publish_time?` (HH:MM) for timed publishing, `generate_image` (boolean) to control bet-slip rendering
@@ -282,16 +282,17 @@ Entry point. Reads `--profile=<path>` from CLI args, loads the referenced profil
 
 Determines which editorial formats to generate today:
 - Reads the profile's scheduling rules (`match_day`, `no_match_day`, `special`)
-- Checks day of week for special triggers (e.g. Sunday evening → Fischio Finale, Fri/Sat → La Lavagna)
+- Checks day of week for special triggers (e.g. Sunday → Il Fischio Finale, Fri/Sat → La Lavagna, Mon/Wed → Pillola)
 - Schedules match-day formats + no-match-day formats (data-fetcher refines later based on actual fixtures)
 - Automatically excludes formats with `weekly|monthly|big_match|derby` frequency from daily lists (handled only via special triggers)
-- Special triggers supported: `sunday_evening`, `friday_saturday`, `monthly`. Note: `big_match` and `derby` triggers always return false (not yet implemented)
+- Special triggers supported: `sunday_evening`, `friday_saturday`, `monday_wednesday`, `monthly`. Note: `big_match` and `derby` triggers always return false (not yet implemented)
 
 ### `nodes/data-fetcher.ts`
 
 Fetches today's fixtures and real odds from The Odds API (primary) with football-data.org as fallback:
-- **Primary (The Odds API)**: `GET /v4/sports/soccer_italy_serie_a/odds/?regions=eu&markets=h2h,totals` — provides fixtures + odds (h2h 1X2, totals Over/Under 2.5). Free tier: 500 req/month
-- **Fallback (football-data.org)**: `GET /v4/competitions/SA/matches?dateFrom={today}&dateTo={today}` — provides fixtures only (no odds)
+- **Primary — Football (The Odds API)**: `GET /v4/sports/soccer_italy_serie_a/odds/?regions=eu&markets=h2h,totals` — provides fixtures + odds (h2h 1X2, totals Over/Under 2.5). Free tier: 500 req/month
+- **Primary — Tennis (The Odds API)**: `GET /v4/sports` to discover active Grand Slam keys (ATP/WTA: French Open, Wimbledon, US Open, Australian Open), then `GET /v4/sports/{key}/odds?markets=h2h` for match odds
+- **Fallback (football-data.org)**: `GET /v4/competitions/SA/matches?dateFrom={today}&dateTo={today}` — provides football fixtures only (no odds)
 - Extracts odds from the first available bookmaker: `home`, `draw`, `away`, `over25`, `under25`
 - Filters out matches that have already started or finished (based on kickoff time vs current time in Rome timezone)
 - If `THE_ODDS_API_KEY` not set, tries `FOOTBALL_DATA_API_KEY` fallback (fixtures without odds)
@@ -305,6 +306,9 @@ LLM-powered content generation:
 - Generates one post per format, respecting the profile's tone of voice and template structure
 - **Bet extraction**: for formats containing bets, makes a second LLM call to extract structured bet selections (`BetSelection[]`) for tracking
 - **Image generation**: for formats with `generate_image: true`, generates an AI background via `gpt-image-1` (branded to the profile's `branding` config) and renders the bet-slip overlay with Puppeteer
+- **Affiliate injection**: for formats with slug `"promo-del-giorno"` and affiliate config in the profile, injects affiliate link and CTA rules into the LLM prompt
+- **Dynamic publish time**: for bet formats, computes publish time as 1h before earliest kickoff + `(10 × betFormatIndex)` min offset
+- **Topic dedup**: for non-bet formats, tracks past topics via `content-history` to avoid repeating content
 
 ### `nodes/reviewer.ts`
 
@@ -331,12 +335,13 @@ Publishes approved posts to Telegram with timed delivery:
 Standalone command to verify bet outcomes and generate recap posts:
 
 1. Reads pending bets from `data/clutchbet.db`
-2. Fetches match results from API-Football / api-sports.io (`/fixtures?status=FT`)
+2. Fetches match results from API-Football / api-sports.io (`/fixtures?status=FT-AET-PEN`)
 3. Evaluates each bet: supports 1X2, Double Chance (1X, X2, 12), Over/Under (any threshold), Goal/NoGoal, Multigol
-4. Generates a recap post via LLM using `prompts/bet-recap.md` — follows the profile's tone of voice and loss management principles
-5. Shows the recap for human approval
-6. Publishes to Telegram and marks bets as recapped
-7. Saves recap locally to `output/recaps/`
+4. **Filters for publication**: only publishes when at least one schedina is won (`vinta`), in progress (`in_corsa`), pending, or a near-miss (`bruciata` with exactly 1 losing bet). Completely wrong schedine are silently discarded
+5. Generates a recap post via LLM using `prompts/bet-recap.md` — follows the profile's tone of voice and loss management principles
+6. Shows the recap for human approval
+7. Publishes to Telegram and marks bets as recapped
+8. Saves recap locally to `output/recaps/`
 
 ## Watch Results (`src/watch-results.ts`)
 

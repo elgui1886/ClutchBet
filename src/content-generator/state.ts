@@ -22,6 +22,7 @@ export interface Fixture {
   venue?: string;
   referee?: string;
   odds?: FixtureOdds;
+  sport?: string;     // "football" | "tennis" — defaults to "football"
 }
 
 /** Branding configuration for image generation */
@@ -93,6 +94,11 @@ export interface ProfileConfig {
       id?: number;
       season?: number;
       country?: string;
+    };
+    affiliate?: {
+      link: string;
+      name: string;
+      cta: string;
     };
   };
 }
