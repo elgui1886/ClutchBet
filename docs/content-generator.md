@@ -13,8 +13,11 @@ Guida pratica per configurare e utilizzare il workflow di generazione automatica
 | `TELEGRAM_API_ID` | Sì | API ID da my.telegram.org |
 | `TELEGRAM_API_HASH` | Sì | API Hash da my.telegram.org |
 | `TELEGRAM_SESSION` | Sì | Stringa di sessione (genera con `npm run setup-telegram`) |
-| `OPENAI_API_KEY` | Sì | Chiave API OpenAI per la generazione dei contenuti |
-| `FOOTBALL_API_KEY` | No | Chiave API-Football (api-sports.io). Senza chiave: mock fixtures per sviluppo |
+| `OPENAI_API_KEY` | Sì | GitHub PAT (o chiave OpenAI) per la generazione dei contenuti |
+| `OPENAI_BASE_URL` | Sì | Endpoint API (es. `https://models.inference.ai.azure.com` per GitHub Models) |
+| `THE_ODDS_API_KEY` | Consigliata | Chiave The Odds API (the-odds-api.com) — fonte primaria per fixtures + quote. Free: 500 req/mese |
+| `FOOTBALL_DATA_API_KEY` | No | Chiave football-data.org — fallback per fixtures senza quote |
+| `FOOTBALL_API_KEY` | No | Chiave API-Football (api-sports.io) — usata solo per verifica risultati scommesse |
 
 ## Setup iniziale (una tantum)
 
@@ -53,8 +56,9 @@ Dopo il parse, verifica e personalizza il file `config/profiles/<nome>.yaml`. In
 config:
   publishChannel: "https://t.me/nomedelcanale"   # canale Telegram
   reviewBeforePublish: false                      # true = approvazione manuale per ogni post
+  timezone: "Europe/Rome"                         # timezone per scheduling (default: Europe/Rome)
   league:
-    id: 135          # Serie A (vedi documentazione API-Football per altri campionati)
+    id: 135          # Serie A
     season: 2025
     country: "Italy"
 ```
@@ -72,13 +76,13 @@ npm run content -- --profile=config/profiles/il-capitano.yaml
 Il workflow esegue nell'ordine:
 
 1. **Scheduler** — Determina quali rubriche generare in base al giorno della settimana e alle regole del profilo
-2. **Data Fetcher** — Recupera le partite del giorno e le quote reali da API-Football. Se non ci sono partite, rimuove le rubriche che dipendono da dati live
+2. **Data Fetcher** — Recupera le partite del giorno e le quote reali da The Odds API (con fallback su football-data.org per solo fixtures). Filtra le partite già iniziate/concluse. Se non ci sono partite, rimuove le rubriche che dipendono da dati live
 3. **Content Writer** — Genera un post per ogni rubrica usando l'LLM, rispettando tono, template e quote reali. Estrae le scommesse strutturate dal testo generato (per il tracking). Per i formati con `generate_image: true`, genera un'immagine bet-slip con sfondo AI brandizzato (gpt-image-1 + Puppeteer overlay)
 4. **Reviewer** — Mostra ogni post in console. L'operatore può:
    - `s` = approva
    - `n` = rifiuta
    - `e` = modifica (incolla testo corretto)
-5. **Publisher** — Salva i post nella **coda persistente** (`content_queue` in SQLite), poi li pubblica su Telegram **rispettando gli orari di pubblicazione** definiti nel profilo. Se l'orario non è ancora arrivato, il processo attende. Ogni post pubblicato viene marcato nella coda, così in caso di crash/restart i post rimanenti vengono ripubblicati automaticamente. Le scommesse contenute nei post vengono salvate nel database SQLite (`data/clutchbet.db`) per il tracking
+5. **Publisher** — Salva i post nella **coda persistente** (`content_queue` in SQLite), poi li pubblica su Telegram **rispettando gli orari di pubblicazione**. Per i formati con scommesse, l'orario è **dinamico**: 1h prima del primo kickoff del giorno (+ offset di 10 min per formato). Per i formati senza scommesse, usa l'orario fisso definito nel profilo. Se l'orario non è ancora arrivato, il processo attende. Ogni post pubblicato viene marcato nella coda, così in caso di crash/restart i post rimanenti vengono ripubblicati automaticamente. Le scommesse contenute nei post vengono salvate nel database SQLite (`data/clutchbet.db`) per il tracking
 
 ### Verificare i risultati delle scommesse
 
@@ -89,7 +93,7 @@ npm run check-results -- --profile=config/profiles/il-capitano.yaml
 Questo comando:
 
 1. Legge le scommesse pendenti dal database SQLite (`data/clutchbet.db`)
-2. Interroga API-Football per i risultati delle partite (solo quelle terminate)
+2. Interroga API-Football (api-sports.io) per i risultati delle partite (solo quelle terminate)
 3. Valuta ogni scommessa: 1X2, Doppia Chance, Over/Under, Goal/NoGoal, Multigol
 4. Genera un post di recap tramite LLM, usando il tono del profilo e i principi di gestione delle perdite
 5. Mostra il recap per approvazione umana
@@ -106,7 +110,7 @@ npm run watch-results -- --profile=config/profiles/il-capitano.yaml
 Alternativa a `check-results` per un uso hands-off:
 
 - Avviare prima del fischio d'inizio
-- Esegue polling ogni ora su API-Football
+- Esegue polling ogni ora su API-Football (api-sports.io)
 - Quando le partite terminano, valuta le scommesse, genera il recap e pubblica
 - Retry automatico (max 3 tentativi, 30 minuti tra un tentativo e l'altro)
 - Si ferma quando tutte le scommesse pendenti sono state risolte
@@ -175,7 +179,7 @@ Il **daemon** (`npm run daemon`) gestisce automaticamente il resume all'avvio e 
 
 - **Orari di pubblicazione**: il publisher attende automaticamente l'orario definito nel profilo per ogni rubrica. Lanciare `npm run content` con anticipo
 - **Restart sicuri**: `pm2 restart il-capitano` riprende automaticamente la pubblicazione dei post rimasti in coda
-- **Senza API-Football**: il sistema funziona in modalità mock con partite e quote fittizie. Utile per test e sviluppo
-- **Free tier API-Football**: 100 richieste/giorno, sufficiente per uso singolo canale
+- **Senza The Odds API Key**: il sistema usa football-data.org come fallback (solo fixtures, senza quote). Se anche questo non è disponibile, le rubriche che richiedono dati vengono saltate
+- **Free tier The Odds API**: 500 richieste/mese, sufficiente per uso singolo canale
 - **Modifiche al profilo**: modificare direttamente il file YAML in `config/profiles/`. Non serve rieseguire il parse
 - **Bet tracking**: le scommesse vengono tracciate solo per i post che contengono effettivamente pronostici (il content-writer li estrae automaticamente)

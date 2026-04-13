@@ -43,9 +43,11 @@ Ogni processo pm2:
 │     I post vengono salvati nel DB (content_queue) PRIMA     │
 │     della pubblicazione → sopravvivono a crash/restart      │
 │     Le scommesse vengono salvate nel DB SQLite              │
+│     Orari di pubblicazione dinamici per formati con bet:    │
+│     1h prima del primo kickoff del giorno                   │
 │                                                             │
 │  2. RESULTS WATCHER (avviato 5 min dopo)                    │
-│     Polling ogni ora su API-Football                        │
+│     Polling ogni ora su API-Football (api-sports.io)        │
 │     Quando le partite finiscono:                            │
 │     → Valuta le scommesse (vinta/persa)                     │
 │     → Genera un post di recap con LLM                       │
@@ -61,12 +63,12 @@ Ogni processo pm2:
 |---|---|
 | 08:00 | Cron scatta → content generation |
 | 08:02 | Scheduler decide quali rubriche generare oggi |
-| 08:03 | Data Fetcher scarica partite + quote da API-Football |
+| 08:03 | Data Fetcher scarica partite + quote da The Odds API (fallback: football-data.org) |
 | 08:04 | Content Writer genera i post con LLM + immagini AI |
 | 08:05 | Publisher pubblica (o attende gli orari definiti nel profilo) |
-| 14:30 | Pubblica "Giocata del Giorno" (esempio) |
-| 15:00 | Pubblica "Cartellino Tattico" (esempio) |
-| 08:10 | Results Watcher avviato — schedula i check per ogni partita |
+| 14:30 | Pubblica "Giocata del Giorno" (orario dinamico: 1h prima del primo kickoff) |
+| 15:00 | Pubblica "Cartellino Tattico" (orario dinamico: +10 min dal precedente) |
+| 08:10 | Results Watcher avviato — schedula i check per ogni partita (API-Football/api-sports.io) |
 | ~22:15 | Partite finite → valuta scommesse → genera e pubblica recap |
 | 08:00 domani | Ripete tutto da capo |
 
@@ -143,9 +145,13 @@ TELEGRAM_API_ID=tuo_api_id
 TELEGRAM_API_HASH=tuo_api_hash
 TELEGRAM_SESSION=tua_stringa_di_sessione
 
-OPENAI_API_KEY=tua_chiave_openai
+OPENAI_API_KEY=tuo_github_pat_o_chiave_openai
+OPENAI_BASE_URL=https://models.inference.ai.azure.com
 
-FOOTBALL_API_KEY=tua_chiave_api_football
+# Sports Data APIs
+THE_ODDS_API_KEY=tua_chiave_the_odds_api
+# FOOTBALL_DATA_API_KEY=tua_chiave_football_data    # fallback (opzionale)
+# FOOTBALL_API_KEY=tua_chiave_api_football           # solo per verifica risultati
 
 # Opzionale: orario del cron (default: 08:00 ogni giorno)
 # Formato: cron standard (minuto ora giorno mese giorno_settimana)

@@ -39,12 +39,12 @@ ClutchBet/
 │   │       ├── channel-analyzer.ts    # GPT-4o chunked analysis
 │   │       └── report-writer.ts       # Save MD report
 │   └── content-generator/
-│       ├── state.ts                   # ContentState (profile, fixtures, odds, bets)
+│       ├── state.ts                   # ContentState (profile, fixtures, odds, bets, branding)
 │       ├── graph.ts                   # scheduler → data_fetcher → content_writer → reviewer → publisher
 │       ├── index.ts                   # Entry point (loads profile YAML)
 │       └── nodes/
 │           ├── scheduler.ts           # Decide which formats to generate
-│           ├── data-fetcher.ts        # Fetch fixtures + odds from API-Football
+│           ├── data-fetcher.ts        # Fetch fixtures + odds from The Odds API (fallback: football-data.org)
 │           ├── content-writer.ts      # LLM generates posts + extracts bet selections
 │           ├── reviewer.ts            # Human-in-the-loop approval (s/n/edit)
 │           └── publisher.ts           # Publish + save bets to tracker
@@ -281,18 +281,20 @@ Entry point. Reads `--profile=<path>` from CLI args, loads the referenced profil
 ### `nodes/scheduler.ts`
 
 Determines which editorial formats to generate today:
-- Reads the profile's scheduling rules
-- Checks day of week for special triggers (Sunday evening → Fischio Finale, Fri/Sat → La Lavagna)
-- Schedules match-day formats + no-match-day formats (data-fetcher refines later)
-- Automatically excludes formats with weekly/monthly/special frequency from daily lists (handled only via special triggers)
+- Reads the profile's scheduling rules (`match_day`, `no_match_day`, `special`)
+- Checks day of week for special triggers (e.g. Sunday evening → Fischio Finale, Fri/Sat → La Lavagna)
+- Schedules match-day formats + no-match-day formats (data-fetcher refines later based on actual fixtures)
+- Automatically excludes formats with `weekly|monthly|big_match|derby` frequency from daily lists (handled only via special triggers)
+- Special triggers supported: `sunday_evening`, `friday_saturday`, `monthly`. Note: `big_match` and `derby` triggers always return false (not yet implemented)
 
 ### `nodes/data-fetcher.ts`
 
-Fetches today's fixtures and real odds from API-Football:
-- **Fixtures**: `GET /fixtures?date={today}&league={id}&season={year}`
-- **Odds**: `GET /odds?fixture={id}` per fixture — extracts 1X2, Over/Under 2.5, Goal/NoGoal
-- Prefers well-known bookmakers (Bet365, Unibet, Bwin)
-- If `FOOTBALL_API_KEY` not set, falls back to mock fixtures with mock odds for development
+Fetches today's fixtures and real odds from The Odds API (primary) with football-data.org as fallback:
+- **Primary (The Odds API)**: `GET /v4/sports/soccer_italy_serie_a/odds/?regions=eu&markets=h2h,totals` — provides fixtures + odds (h2h 1X2, totals Over/Under 2.5). Free tier: 500 req/month
+- **Fallback (football-data.org)**: `GET /v4/competitions/SA/matches?dateFrom={today}&dateTo={today}` — provides fixtures only (no odds)
+- Extracts odds from the first available bookmaker: `home`, `draw`, `away`, `over25`, `under25`
+- Filters out matches that have already started or finished (based on kickoff time vs current time in Rome timezone)
+- If `THE_ODDS_API_KEY` not set, tries `FOOTBALL_DATA_API_KEY` fallback (fixtures without odds)
 - If no fixtures found, removes data-dependent formats from schedule
 
 ### `nodes/content-writer.ts`
@@ -316,8 +318,11 @@ Human-in-the-loop approval:
 
 Publishes approved posts to Telegram with timed delivery:
 - Sorts posts by `publishTime` (chronological)
+- **For bet-containing formats**: publish time is **dynamic** — computed as `(earliest kickoff) - 60 min + (10 × formatIndex)`. This ensures posts go out 1h before the first match
+- **For non-bet formats**: uses fixed `publish_time` from format config
 - **Waits until the scheduled time** before sending each post (logs countdown)
 - If scheduled time has passed, publishes immediately
+- Timezone: `Europe/Rome` (default), overridable per profile via `config.timezone`
 - Uses shared GramJS utilities
 - **Saves bets to tracker**: after successful publish, extracted bet selections are stored in `data/clutchbet.db` (SQLite) via `bet-tracker.ts`
 
@@ -326,7 +331,7 @@ Publishes approved posts to Telegram with timed delivery:
 Standalone command to verify bet outcomes and generate recap posts:
 
 1. Reads pending bets from `data/clutchbet.db`
-2. Fetches match results from API-Football (`/fixtures?status=FT`)
+2. Fetches match results from API-Football / api-sports.io (`/fixtures?status=FT`)
 3. Evaluates each bet: supports 1X2, Double Chance (1X, X2, 12), Over/Under (any threshold), Goal/NoGoal, Multigol
 4. Generates a recap post via LLM using `prompts/bet-recap.md` — follows the profile's tone of voice and loss management principles
 5. Shows the recap for human approval
@@ -336,7 +341,7 @@ Standalone command to verify bet outcomes and generate recap posts:
 ## Watch Results (`src/watch-results.ts`)
 
 Daemon/polling version of `check-results` for hands-off operation on match days:
-- Polls API-Football at regular intervals (`SCAN_INTERVAL_MS` = 1 hour) for finished matches
+- Polls API-Football (api-sports.io) at regular intervals (`SCAN_INTERVAL_MS` = 1 hour) for finished matches
 - Evaluates pending bets and generates recap posts automatically
 - Retries on failure (`MAX_RETRIES` = 3, `RETRY_DELAY_MS` = 30 minutes)
 - Uses the same core logic as `check-results` (shared `bet-tracker.ts`, `results-update.md` prompt)
@@ -371,7 +376,7 @@ months: 3
 
 ### `content.yaml` (Content Generator)
 
-> **Nota**: questo file non viene letto dal codice. Tutte le impostazioni del content generator (publishChannel, league, reviewBeforePublish) sono nella sezione `config:` di ogni profilo YAML in `config/profiles/`. Il file resta come riferimento ma è ininfluente.
+> **Nota**: questo file non viene letto dal codice. Tutte le impostazioni del content generator (publishChannel, league, reviewBeforePublish, timezone) sono nella sezione `config:` di ogni profilo YAML in `config/profiles/`. Il file resta come riferimento ma è ininfluente.
 
 ```yaml
 profile: "config/profiles/il-capitano.yaml"
@@ -448,7 +453,9 @@ Auto-created directory where the generation scraper saves images downloaded from
 | `TELEGRAM_API_ID` | Yes | Numeric app ID from [my.telegram.org](https://my.telegram.org) |
 | `TELEGRAM_API_HASH` | Yes | App hash from [my.telegram.org](https://my.telegram.org) |
 | `TELEGRAM_SESSION` | Yes | Session string from `npx tsx src/setup-telegram.ts` |
-| `FOOTBALL_API_KEY` | No | API-Football key (free tier: 100 req/day). Required for real fixture data in content generator |
+| `THE_ODDS_API_KEY` | Recommended | The Odds API key (the-odds-api.com). Primary source for fixtures + odds. Free tier: 500 req/month |
+| `FOOTBALL_DATA_API_KEY` | No | football-data.org key. Fallback for fixtures (no odds) |
+| `FOOTBALL_API_KEY` | No | API-Football key (api-sports.io). Only needed for `check-results` / `watch-results` (match result verification) |
 
 ## Running the Project
 

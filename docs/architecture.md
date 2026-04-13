@@ -18,7 +18,7 @@ A one-off analysis tool that:
 
 ### Content Generator Workflow (`npm run content`)
 An editorial content pipeline that turns a **profile** (editorial line definition) into real, publishable Telegram posts:
-1. **Fetches** real sports data (fixtures, odds) from external APIs (API-Football)
+1. **Fetches** real sports data (fixtures, odds) from external APIs (The Odds API + football-data.org fallback)
 2. **Schedules** which editorial formats to generate today based on the profile's editorial plan, the day of the week, and available fixtures
 3. **Generates** post content via LLM, strictly following the profile's tone of voice, format templates, and real sports data
 4. **Reviews** generated content with human-in-the-loop approval before publishing
@@ -27,14 +27,14 @@ An editorial content pipeline that turns a **profile** (editorial line definitio
 ### Bet Results Checker (`npm run check-results`)
 A command that verifies the outcome of published bets:
 1. **Reads** pending (unresolved) bets from the SQLite database (`data/clutchbet.db`)
-2. **Fetches** match results from API-Football for finished matches
+2. **Fetches** match results from API-Football (api-sports.io) for finished matches
 3. **Evaluates** each bet (supports 1X2, Over/Under, Goal/NoGoal, Double Chance, Multigol)
 4. **Generates** a recap post via LLM, following the profile's tone of voice and loss management rules
 5. **Publishes** the recap to Telegram (with human approval)
 
 ### Bet Results Watcher (`npm run watch-results`)
 A daemon/polling version of `check-results` that runs continuously:
-1. **Polls** API-Football at regular intervals (default: 1 hour) for finished matches
+2. **Polls** API-Football (api-sports.io) at regular intervals (default: 1 hour) for finished matches
 2. **Evaluates** pending bets automatically when results become available
 3. **Generates and publishes** recap posts (with human approval)
 4. **Retries** on failure (max 3 retries, 30-minute delay between retries)
@@ -78,10 +78,12 @@ A one-off utility that converts a human-written Markdown profile (e.g. `output/p
 | **Image Rendering** | Puppeteer (headless Chrome) | Renders HTML/CSS bet-slip template to PNG screenshot with AI-generated backgrounds |
 | **AI Backgrounds** | OpenAI gpt-image-1 | Generates unique branded background images per post via DALL-E |
 | **Publishing** | Telegram channel | Generated post sent directly to a configured Telegram channel |
-| **Sports Data API** | API-Football (api-sports.io) | Real fixtures, odds (1X2, Over/Under, Goal/NoGoal), match results for content generation and bet tracking |
+| **Sports Data API (fixtures + odds)** | The Odds API (the-odds-api.com) | Primary source for upcoming fixtures and odds (h2h 1X2, totals Over/Under 2.5). Free tier: 500 req/month |
+| **Sports Data API (fallback)** | football-data.org | Fallback for fixtures only (no odds). Free tier, no key required for basic usage |
+| **Sports Data API (results)** | API-Football (api-sports.io) | Match results for bet verification and recap generation |
 | **Bet Storage** | better-sqlite3 (SQLite) | Local database for bet tracking, result verification, performance analytics, and content publish queue |
 | **Trigger** | CLI (`tsx`) | Manual execution via `npm start` |
-| **Scheduling (Future)** | node-cron / system cron | Daily automated execution |
+| **Scheduling** | node-cron + dynamic publish times | Daily automated execution via pm2 daemon. Bet formats publish 1h before first kickoff |
 | **Configuration** | YAML + .env | Channels, topics, profiles, API keys |
 
 ## LangGraph Workflows
@@ -199,7 +201,7 @@ This approach keeps each LLM call within context window limits while still produ
 ### Content Generator Workflow
 - **Trigger**: `npm run content` (CLI)
 - **Frequency**: Once per day (morning)
-- **Input**: Parsed YAML profile + real sports data from API-Football
+- **Input**: Parsed YAML profile + real sports data from The Odds API (+ football-data.org fallback)
 - **Output**: Generated posts saved to `output/content/`, published to Telegram at scheduled times
 - **Config**: Profile YAML contiene tutto (publishChannel, league, tone, branding, ecc.)
 - **Human-in-the-loop**: Each generated post must be approved before publishing
@@ -214,7 +216,7 @@ This approach keeps each LLM call within context window limits while still produ
 ### Bet Results Watcher
 - **Trigger**: `npm run watch-results` (CLI — long-running daemon)
 - **Frequency**: Polls every hour until all pending bets are resolved
-- **Input**: Same as check-results (pending bets + API-Football results)
+- **Input**: Same as check-results (pending bets + API-Football/api-sports.io results)
 - **Output**: Same as check-results (recap post → Telegram)
 - **Retry**: Max 3 retries, 30-minute delay between retries on failure
 

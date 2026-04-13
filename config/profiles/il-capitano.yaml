@@ -115,20 +115,24 @@ formats:
     publish_time: "14:30"
     type: "regular"
     generate_image: true
-    description: "Una singola giocata ragionata con spiegazione breve (2-3 righe di motivazione + selezione + quota). Qualità > quantità."
+    description: "Schedina ragionata della giornata: 1-6 selezioni da partite diverse con spiegazione breve del ragionamento per ogni selezione. Qualità > quantità."
     requires_data:
       - fixtures
       - odds
     template: |
       ⚽ GIOCATA DEL GIORNO
       
-      {match} | {league} | ore {time}
-      
+      🔹 {match1} | {league} | ore {time}
       📋 Selezione: {selection}
       📊 Quota: {odds}
-      
+      Ragionamento: {reasoning}
+
+      🔹 {match2} | {league} | ore {time}
+      📋 Selezione: {selection}
+      📊 Quota: {odds}
       Ragionamento: {reasoning}
       
+      📊 Quota totale: {total_odds}
       ⚠️ Rischio: {risk}
       
       #GiocataDelGiorno
@@ -136,31 +140,48 @@ formats:
       - |
         ⚽ GIOCATA DEL GIORNO
 
-        Lazio - Fiorentina | Serie A | ore 20:45
+        Oggi ho selezionato 3 partite che mi convincono. Ecco la schedina.
 
+        🔹 Lazio - Fiorentina | Serie A | ore 20:45
         📋 Selezione: Over 2.5
         📊 Quota: 1.85
+        La Lazio in casa segna sempre, la Viola non sa difendere in trasferta. Ultimi 4 precedenti: tutti sopra i 2.5 gol.
 
-        La Lazio in casa segna sempre, la Viola non sa difendere in trasferta. Ultimi 4 precedenti: tutti sopra i 2.5 gol. Immobile è in stato di grazia, 6 gol nelle ultime 5. La Fiorentina col baricentro alto lascia spazi enormi.
+        🔹 Bologna - Torino | Serie A | ore 18:00
+        📋 Selezione: 1
+        📊 Quota: 2.05
+        Il Bologna in casa è una macchina. 7 vittorie nelle ultime 9 al Dall'Ara. Il Torino fuori casa non punge.
 
-        Questa è una di quelle che mi piacciono: dato chiaro, quota onesta.
+        🔹 Udinese - Lecce | Serie A | ore 15:00
+        📋 Selezione: 1X
+        📊 Quota: 1.30
+        L'Udinese in casa tiene. Il Lecce in trasferta ha vinto una volta in tutto il girone. Selezione di sicurezza per la schedina.
 
+        📊 Quota totale: 4.93
         ⚠️ Rischio: medio
+
+        Tre partite, tre ragionamenti. Niente di miracoloso, ma se entrano tutte, si porta a casa.
 
         #GiocataDelGiorno
       - |
         ⚽ GIOCATA DEL GIORNO
 
-        Bologna - Torino | Serie A | ore 18:00
+        Stasera si gioca e vi propongo due selezioni secche.
 
-        📋 Selezione: 1
-        📊 Quota: 2.05
+        🔹 Inter - Napoli | Serie A | ore 20:45
+        📋 Selezione: Goal (entrambe segnano)
+        📊 Quota: 1.70
+        Quando si sfidano, i gol arrivano. Ultimi 5 precedenti: almeno un gol per parte in 4 su 5. Lautaro e Kvara non stanno a guardare.
 
-        Il Bologna in casa è una macchina. 7 vittorie nelle ultime 9 al Dall'Ara. Il Torino fuori casa è un'altra squadra — senza cattiveria, senza verticalità. Thiago Motta ha la rosa al completo. Per me è un buon momento per prendersi la quota.
+        🔹 Roma - Juventus | Serie A | ore 18:00
+        📋 Selezione: Under 2.5
+        📊 Quota: 1.88
+        Due difese solide, partita da pochi gol. La Juve fuori casa chiude tutto. La Roma senza Abraham non ha peso offensivo.
 
-        Non è una certezza, ma il rapporto rischio-rendimento è ottimo.
+        📊 Quota totale: 3.20
+        ⚠️ Rischio: medio
 
-        ⚠️ Rischio: medio-alto
+        Due selezioni, due logiche diverse. Una offensiva, una difensiva. Bilanciata.
 
         #GiocataDelGiorno
 

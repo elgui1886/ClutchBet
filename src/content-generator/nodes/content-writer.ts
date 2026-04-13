@@ -24,6 +24,48 @@ function hasBets(format: FormatConfig): boolean {
   );
 }
 
+/** Current time in Europe/Rome as minutes since midnight. */
+function nowMinutesInRome(): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Rome",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const h = Number(parts.find((p) => p.type === "hour")!.value);
+  const m = Number(parts.find((p) => p.type === "minute")!.value);
+  return h * 60 + m;
+}
+
+/**
+ * Computes dynamic publish time: 1h before the earliest kickoff in the schedina.
+ * Returns undefined if the computed time is already past (publish immediately).
+ */
+function computeDynamicPublishTime(
+  bets: BetSelection[] | undefined,
+  fixtures: Fixture[],
+  offsetMinutes: number = 0,
+): string | undefined {
+  let kickoffs: string[] = [];
+  if (bets && bets.length > 0) {
+    kickoffs = bets.map((b) => b.kickoff).filter(Boolean);
+  }
+  if (kickoffs.length === 0) {
+    kickoffs = fixtures.map((f) => f.time);
+  }
+  if (kickoffs.length === 0) return undefined;
+
+  kickoffs.sort();
+  const [h, m] = kickoffs[0].split(":").map(Number);
+  const pubMinutes = h * 60 + m - 60 + offsetMinutes;
+
+  if (pubMinutes <= nowMinutesInRome()) return undefined;
+
+  const pubH = Math.floor(pubMinutes / 60);
+  const pubM = pubMinutes % 60;
+  return `${String(pubH).padStart(2, "0")}:${String(pubM).padStart(2, "0")}`;
+}
+
 /**
  * Content-writer node — generates one post per scheduled format using the LLM.
  * The profile's tone of voice, format template, and real sports data are injected into the prompt.
@@ -55,6 +97,7 @@ export async function contentWriterNode(
 
   const template = loadPrompt(CONTENT_PROMPT_PATH);
   const items: ContentItem[] = [];
+  let betFormatIndex = 0;
 
   for (const slug of scheduledFormats) {
     const format = profile.formats.find((f) => f.slug === slug);
@@ -145,12 +188,24 @@ export async function contentWriterNode(
       }
     }
 
+    // Compute publish time: dynamic for bet formats, fixed for non-bet formats
+    let publishTime = format.publish_time;
+    if (hasBets(format) && fixtures.length > 0) {
+      publishTime = computeDynamicPublishTime(bets, fixtures, betFormatIndex * 10);
+      betFormatIndex++;
+      if (publishTime) {
+        console.log(`  ⏰ Dynamic publish time: ${publishTime} (1h before earliest kickoff)`);
+      } else {
+        console.log(`  ⏰ Earliest kickoff is less than 1h away — publishing immediately`);
+      }
+    }
+
     items.push({
       formatSlug: slug,
       formatName: format.name,
       text: text.trim(),
       imageBase64,
-      publishTime: format.publish_time,
+      publishTime,
       bets,
       approved: false,
       published: false,
@@ -351,9 +406,14 @@ function buildSportsData(
   }
 
   lines.push(
-    "\n> Nota: Le quote sopra sono REALI e aggiornate. Usale nei tuoi post. " +
-      "Puoi aggiungere ragionamenti e analisi basati sulla tua conoscenza " +
-      "(forma squadre, statistiche recenti, ecc.)."
+    "\n> ⚠️ REGOLA FONDAMENTALE — SCHEDINA MULTI-BET:\n" +
+      "> Ogni post con scommesse DEVE essere una SCHEDINA con minimo 1 e massimo 6 selezioni da partite DIVERSE.\n" +
+      "> NON proporre MAI una singola scommessa isolata. Seleziona le partite più interessanti tra quelle sopra.\n" +
+      "> Per ogni selezione indica: partita, selezione e quota.\n" +
+      "> In fondo al post mostra la QUOTA TOTALE della schedina (prodotto delle singole quote).\n\n" +
+      "> Le quote sopra sono REALI e aggiornate. Usale nei tuoi post. " +
+      "Non inventare MAI quote, partite, giocatori o statistiche. " +
+      "Se un dato non è disponibile, omettilo."
   );
 
   return lines.join("\n");
