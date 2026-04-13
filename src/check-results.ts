@@ -20,7 +20,8 @@ import type { ProfileConfig } from "./content-generator/state.js";
 
 type ProfileCfg = NonNullable<ProfileConfig["config"]>;
 
-const API_FOOTBALL_BASE = "https://v3.football.api-sports.io";
+const FOOTBALL_DATA_BASE = "https://api.football-data.org/v4";
+const SERIE_A_CODE = "SA";
 const UPDATE_PROMPT_PATH = path.resolve("prompts", "results-update.md");
 
 interface MatchResult {
@@ -140,51 +141,52 @@ async function main() {
 // ── Result fetching ──────────────────────────────────────────
 
 async function fetchResults(bets: TrackedBet[], config: ProfileCfg): Promise<MatchResult[]> {
-  const apiKey = process.env.FOOTBALL_API_KEY;
+  const apiKey = process.env.FOOTBALL_DATA_API_KEY;
 
   if (!apiKey) {
-    console.log("⚠️  FOOTBALL_API_KEY not set. Using mock results.\n");
+    console.log("⚠️  FOOTBALL_DATA_API_KEY not set. Using mock results.\n");
     return getMockResults(bets);
   }
 
   const dates = [...new Set(bets.map((b) => b.date))];
-  const leagueId = config.league?.id ?? 135;
-  const season = config.league?.season ?? 2025;
   const allResults: MatchResult[] = [];
 
   for (const date of dates) {
     try {
-      const url = new URL(`${API_FOOTBALL_BASE}/fixtures`);
-      url.searchParams.set("date", date);
-      url.searchParams.set("status", "FT-AET-PEN");
-      url.searchParams.set("league", String(leagueId));
-      url.searchParams.set("season", String(season));
+      const url = new URL(`${FOOTBALL_DATA_BASE}/competitions/${SERIE_A_CODE}/matches`);
+      url.searchParams.set("dateFrom", date);
+      url.searchParams.set("dateTo", date);
+      url.searchParams.set("status", "FINISHED");
 
       const response = await fetch(url.toString(), {
-        headers: { "x-apisports-key": apiKey },
+        headers: { "X-Auth-Token": apiKey },
       });
 
       if (!response.ok) {
-        console.error(`❌ API-Football ${response.status} for date ${date}`);
+        const body = await response.text().catch(() => "");
+        console.error(`❌ football-data.org ${response.status} for date ${date}: ${body}`);
         continue;
       }
 
       const data = (await response.json()) as {
-        response: Array<{
-          fixture: { id: number; status: { short: string } };
-          teams: { home: { name: string }; away: { name: string } };
-          goals: { home: number; away: number };
+        matches: Array<{
+          id: number;
+          status: string;
+          homeTeam: { name: string };
+          awayTeam: { name: string };
+          score: { fullTime: { home: number; away: number } };
         }>;
       };
 
-      for (const item of data.response) {
+      for (const match of data.matches) {
+        if (match.status !== "FINISHED") continue;
         allResults.push({
-          fixtureId: item.fixture.id,
-          homeTeam: item.teams.home.name,
-          awayTeam: item.teams.away.name,
-          homeGoals: item.goals.home,
-          awayGoals: item.goals.away,
-          status: item.fixture.status.short,
+          fixtureId: match.id,
+          homeTeam: match.homeTeam.name,
+          awayTeam: match.awayTeam.name,
+          homeGoals: match.score.fullTime.home,
+          awayGoals: match.score.fullTime.away,
+          status: "FT",
         });
       }
     } catch (err) {

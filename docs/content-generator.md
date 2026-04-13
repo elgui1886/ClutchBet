@@ -17,8 +17,7 @@ Guida pratica per configurare e utilizzare il workflow di generazione automatica
 | `OPENAI_BASE_URL` | Sì | Endpoint API (es. `https://models.inference.ai.azure.com` per GitHub Models) |
 | `OPENAI_MODEL` | No | Modello LLM (default: `gpt-4o`) |
 | `THE_ODDS_API_KEY` | Consigliata | Chiave The Odds API (the-odds-api.com) — fonte primaria per fixtures + quote (calcio + tennis). Free: 500 req/mese |
-| `FOOTBALL_DATA_API_KEY` | No | Chiave football-data.org — fallback per fixtures calcio senza quote |
-| `FOOTBALL_API_KEY` | No | Chiave API-Football (api-sports.io) — usata solo per verifica risultati scommesse |
+| `FOOTBALL_DATA_API_KEY` | Consigliata | Chiave football-data.org — fallback per fixtures calcio + verifica risultati scommesse |
 
 ## Setup iniziale (una tantum)
 
@@ -94,7 +93,7 @@ npm run check-results -- --profile=config/profiles/il-capitano.yaml
 Questo comando:
 
 1. Legge le scommesse pendenti dal database SQLite (`data/clutchbet.db`)
-2. Interroga API-Football (api-sports.io) per i risultati delle partite (solo quelle terminate)
+2. Interroga football-data.org per i risultati delle partite (solo quelle terminate)
 3. Valuta ogni scommessa: 1X2, Doppia Chance, Over/Under, Goal/NoGoal, Multigol
 4. Genera un post di recap tramite LLM, usando il tono del profilo e i principi di gestione delle perdite
 5. Mostra il recap per approvazione umana
@@ -111,7 +110,7 @@ npm run watch-results -- --profile=config/profiles/il-capitano.yaml
 Alternativa a `check-results` per un uso hands-off:
 
 - Avviare prima del fischio d'inizio
-- Esegue polling ogni ora su API-Football (api-sports.io)
+- Esegue polling ogni ora su football-data.org
 - Quando le partite terminano, valuta le scommesse, genera il recap e pubblica
 - Retry automatico (max 3 tentativi, 30 minuti tra un tentativo e l'altro)
 - Si ferma quando tutte le scommesse pendenti sono state risolte

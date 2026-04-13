@@ -335,7 +335,7 @@ Publishes approved posts to Telegram with timed delivery:
 Standalone command to verify bet outcomes and generate recap posts:
 
 1. Reads pending bets from `data/clutchbet.db`
-2. Fetches match results from API-Football / api-sports.io (`/fixtures?status=FT-AET-PEN`)
+2. Fetches match results from football-data.org (`GET /competitions/SA/matches?status=FINISHED`)
 3. Evaluates each bet: supports 1X2, Double Chance (1X, X2, 12), Over/Under (any threshold), Goal/NoGoal, Multigol
 4. **Filters for publication**: only publishes when at least one schedina is won (`vinta`), in progress (`in_corsa`), pending, or a near-miss (`bruciata` with exactly 1 losing bet). Completely wrong schedine are silently discarded
 5. Generates a recap post via LLM using `prompts/bet-recap.md` — follows the profile's tone of voice and loss management principles
@@ -346,7 +346,7 @@ Standalone command to verify bet outcomes and generate recap posts:
 ## Watch Results (`src/watch-results.ts`)
 
 Daemon/polling version of `check-results` for hands-off operation on match days:
-- Polls API-Football (api-sports.io) at regular intervals (`SCAN_INTERVAL_MS` = 1 hour) for finished matches
+- Polls football-data.org at regular intervals (`SCAN_INTERVAL_MS` = 1 hour) for finished matches
 - Evaluates pending bets and generates recap posts automatically
 - Retries on failure (`MAX_RETRIES` = 3, `RETRY_DELAY_MS` = 30 minutes)
 - Uses the same core logic as `check-results` (shared `bet-tracker.ts`, `results-update.md` prompt)
@@ -387,7 +387,7 @@ months: 3
 profile: "config/profiles/il-capitano.yaml"
 publishChannel: "https://t.me/maremmabet"
 league:
-  id: 135          # Serie A (API-Football league ID)
+  id: 135          # Serie A (football-data.org competition code: SA)
   season: 2025
   country: "Italy"
 ```
@@ -459,8 +459,7 @@ Auto-created directory where the generation scraper saves images downloaded from
 | `TELEGRAM_API_HASH` | Yes | App hash from [my.telegram.org](https://my.telegram.org) |
 | `TELEGRAM_SESSION` | Yes | Session string from `npx tsx src/setup-telegram.ts` |
 | `THE_ODDS_API_KEY` | Recommended | The Odds API key (the-odds-api.com). Primary source for fixtures + odds. Free tier: 500 req/month |
-| `FOOTBALL_DATA_API_KEY` | No | football-data.org key. Fallback for fixtures (no odds) |
-| `FOOTBALL_API_KEY` | No | API-Football key (api-sports.io). Only needed for `check-results` / `watch-results` (match result verification) |
+| `FOOTBALL_DATA_API_KEY` | Recommended | football-data.org key. Fallback for fixtures (no odds) + match results for bet verification |
 
 ## Running the Project
 

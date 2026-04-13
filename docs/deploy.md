@@ -47,7 +47,7 @@ Ogni processo pm2:
 │     1h prima del primo kickoff del giorno                   │
 │                                                             │
 │  2. RESULTS WATCHER (avviato 5 min dopo)                    │
-│     Polling ogni ora su API-Football (api-sports.io)        │
+│     Polling ogni ora su football-data.org                   │
 │     Quando le partite finiscono:                            │
 │     → Valuta le scommesse (vinta/persa)                     │
 │     → Genera un post di recap con LLM                       │
@@ -72,7 +72,7 @@ Ogni processo pm2:
 | ~14:10 | Pubblica "Marcatori" (orario dinamico: +10 min) |
 | ~14:20 | Pubblica "Cartellini" (orario dinamico: +20 min) |
 | ~14:30 | Pubblica "La Combo" (orario dinamico: +30 min) |
-| 08:10 | Results Watcher avviato — schedula i check per ogni partita (API-Football/api-sports.io) |
+| 08:10 | Results Watcher avviato — schedula i check per ogni partita (football-data.org) |
 | ~22:15 | Partite finite → valuta scommesse → genera e pubblica recap (solo vincite e quasi-vincite) |
 | 08:00 domani | Ripete tutto da capo |
 
@@ -155,8 +155,7 @@ OPENAI_BASE_URL=https://models.inference.ai.azure.com
 
 # Sports Data APIs
 THE_ODDS_API_KEY=tua_chiave_the_odds_api                 # primaria: fixtures + quote (calcio + tennis)
-# FOOTBALL_DATA_API_KEY=tua_chiave_football_data          # fallback fixtures calcio (opzionale)
-# FOOTBALL_API_KEY=tua_chiave_api_football                # solo per verifica risultati (opzionale)
+FOOTBALL_DATA_API_KEY=tua_chiave_football_data             # fallback fixtures + verifica risultati
 
 # Opzionale: orario del cron (default: 08:00 ogni giorno)
 # Formato: cron standard (minuto ora giorno mese giorno_settimana)
@@ -338,7 +337,7 @@ sudo apt install -y ca-certificates fonts-liberation libasound2 \
 
 ### Il watcher non verifica i risultati
 
-1. Controlla che `FOOTBALL_API_KEY` sia configurata
+1. Controlla che `FOOTBALL_DATA_API_KEY` sia configurata
 2. Verifica che ci siano scommesse pendenti: controlla il database `data/clutchbet.db`
 3. Il watcher si avvia 5 minuti dopo la generazione contenuti
 

@@ -12,8 +12,8 @@ reviewBeforePublish: false
 # Supported formats: Web URL, t.me link, @username, numeric ID
 publishChannel: "https://t.me/maremmabet"
 
-# Football league configuration (for API-Football)
-# Set FOOTBALL_API_KEY in .env to enable real fixture data
+# Football league configuration
+# Set THE_ODDS_API_KEY and FOOTBALL_DATA_API_KEY in .env
 league:
   id: 135          # Serie A
   season: 2025     # Current season year

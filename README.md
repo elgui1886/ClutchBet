@@ -24,7 +24,7 @@ Automated Telegram content generation and publishing platform for sports betting
 | Telegram | GramJS (Client API) |
 | LLM | OpenAI SDK (GPT-4o / GPT-4o-mini) |
 | Image Rendering | Puppeteer (headless Chrome) |
-| Sports Data | API-Football (api-sports.io) |
+| Sports Data | The Odds API + football-data.org |
 | Database | SQLite (better-sqlite3) |
 | Process Manager | pm2 |
 | Configuration | YAML + .env |

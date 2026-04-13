@@ -27,7 +27,7 @@ An editorial content pipeline that turns a **profile** (editorial line definitio
 ### Bet Results Checker (`npm run check-results`)
 A command that verifies the outcome of published bets:
 1. **Reads** pending (unresolved) bets from the SQLite database (`data/clutchbet.db`)
-2. **Fetches** match results from API-Football (api-sports.io) for finished matches
+2. **Fetches** match results from football-data.org for finished matches
 3. **Evaluates** each bet (supports 1X2, Over/Under, Goal/NoGoal, Double Chance, Multigol)
 4. **Filters for publication**: publishes a recap only for winning schedine, in-progress schedine, or near-misses (lost by exactly 1 event). Completely wrong schedine are silently discarded
 5. **Generates** a recap post via LLM, following the profile's tone of voice and loss management rules
@@ -35,7 +35,7 @@ A command that verifies the outcome of published bets:
 
 ### Bet Results Watcher (`npm run watch-results`)
 A daemon/polling version of `check-results` that runs continuously:
-2. **Polls** API-Football (api-sports.io) at regular intervals (default: 1 hour) for finished matches
+2. **Polls** football-data.org at regular intervals (default: 1 hour) for finished matches
 2. **Evaluates** pending bets automatically when results become available
 3. **Generates and publishes** recap posts (with human approval)
 4. **Retries** on failure (max 3 retries, 30-minute delay between retries)
@@ -80,8 +80,7 @@ A one-off utility that converts a human-written Markdown profile (e.g. `output/p
 | **AI Backgrounds** | OpenAI gpt-image-1 | Generates unique branded background images per post via DALL-E |
 | **Publishing** | Telegram channel | Generated post sent directly to a configured Telegram channel |
 | **Sports Data API (fixtures + odds)** | The Odds API (the-odds-api.com) | Primary source for upcoming fixtures and odds. Football (Serie A): h2h 1X2, totals Over/Under 2.5. Tennis (Grand Slams ATP/WTA): h2h. Free tier: 500 req/month |
-| **Sports Data API (fallback)** | football-data.org | Fallback for football fixtures only (no odds). Free tier, no key required for basic usage |
-| **Sports Data API (results)** | API-Football (api-sports.io) | Match results for bet verification and recap generation |
+| **Sports Data API (fallback + results)** | football-data.org | Fallback for football fixtures (no odds) + match results for bet verification. Free tier |
 | **Bet Storage** | better-sqlite3 (SQLite) | Local database for bet tracking, result verification, performance analytics, and content publish queue |
 | **Trigger** | CLI (`tsx`) | Manual execution via `npm start` |
 | **Scheduling** | node-cron + dynamic publish times | Daily automated execution via pm2 daemon. Bet formats publish 1h before first kickoff |
@@ -210,14 +209,14 @@ This approach keeps each LLM call within context window limits while still produ
 ### Bet Results Checker
 - **Trigger**: `npm run check-results` (CLI)
 - **Frequency**: After matches finish (evening / end of match day)
-- **Input**: Pending bets from `data/clutchbet.db` + match results from API-Football
+- **Input**: Pending bets from `data/clutchbet.db` + match results from football-data.org
 - **Output**: Recap post saved to `output/recaps/`, published to Telegram
 - **Human-in-the-loop**: Recap must be approved before publishing
 
 ### Bet Results Watcher
 - **Trigger**: `npm run watch-results` (CLI — long-running daemon)
 - **Frequency**: Polls every hour until all pending bets are resolved
-- **Input**: Same as check-results (pending bets + API-Football/api-sports.io results)
+- **Input**: Same as check-results (pending bets + football-data.org results)
 - **Output**: Same as check-results (recap post → Telegram)
 - **Retry**: Max 3 retries, 30-minute delay between retries on failure
 
