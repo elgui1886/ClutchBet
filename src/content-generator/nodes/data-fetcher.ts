@@ -2,7 +2,14 @@ import type { ContentStateType, Fixture, FixtureOdds } from "../state.js";
 
 // ── The Odds API (primary: fixtures + odds) ──────────────────
 const THE_ODDS_API_BASE = "https://api.the-odds-api.com/v4";
-const SPORT_KEY = "soccer_italy_serie_a";
+
+// Football competitions to fetch (all Italian + European relevant)
+const FOOTBALL_SPORT_KEYS: Array<{ key: string; label: string }> = [
+  { key: "soccer_italy_serie_a", label: "Serie A" },
+  { key: "soccer_uefa_champs_league", label: "Champions League" },
+  { key: "soccer_italy_coppa_italia", label: "Coppa Italia" },
+  { key: "soccer_uefa_europa_league", label: "Europa League" },
+];
 
 // Tennis sport keys — fetched in order, first active tournament found wins
 const TENNIS_SPORT_KEYS = [
@@ -18,7 +25,13 @@ const TENNIS_SPORT_KEYS = [
 
 // ── football-data.org (fallback: fixtures only) ──────────────
 const FOOTBALL_DATA_BASE = "https://api.football-data.org/v4";
-const SERIE_A_CODE = "SA";
+
+// football-data.org competition codes (fallback + results)
+const FOOTBALL_DATA_COMPETITIONS: Array<{ code: string; label: string }> = [
+  { code: "SA", label: "Serie A" },
+  { code: "CL", label: "Champions League" },
+  { code: "CI", label: "Coppa Italia" },
+];
 
 // ── The Odds API response types ──────────────────────────────
 
@@ -139,46 +152,69 @@ async function fetchFromOddsApi(date: string): Promise<Fixture[] | null> {
   const apiKey = process.env.THE_ODDS_API_KEY;
   if (!apiKey) return null;
 
-  console.log(`⚽ Fetching fixtures + odds from The Odds API (Serie A)...`);
+  const allFixtures: Fixture[] = [];
+  let anySuccess = false;
 
-  const url = new URL(`${THE_ODDS_API_BASE}/sports/${SPORT_KEY}/odds`);
-  url.searchParams.set("apiKey", apiKey);
-  url.searchParams.set("regions", "eu");
-  url.searchParams.set("markets", "h2h,totals");
-  url.searchParams.set("dateFormat", "iso");
-  url.searchParams.set("oddsFormat", "decimal");
+  for (const { key: sportKey, label } of FOOTBALL_SPORT_KEYS) {
+    try {
+      console.log(`⚽ Fetching fixtures + odds from The Odds API (${label})...`);
 
-  const response = await fetch(url.toString());
+      const url = new URL(`${THE_ODDS_API_BASE}/sports/${sportKey}/odds`);
+      url.searchParams.set("apiKey", apiKey);
+      url.searchParams.set("regions", "eu");
+      url.searchParams.set("markets", "h2h,totals");
+      url.searchParams.set("dateFormat", "iso");
+      url.searchParams.set("oddsFormat", "decimal");
 
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    console.error(`❌ The Odds API responded with ${response.status}: ${body}`);
-    return null;
+      const response = await fetch(url.toString());
+
+      if (!response.ok) {
+        // 404 or similar = competition not active/available, skip silently
+        if (response.status === 404 || response.status === 422) {
+          console.log(`   ℹ️  ${label}: not available (skipped)`);
+          continue;
+        }
+        const body = await response.text().catch(() => "");
+        console.error(`   ❌ ${label}: The Odds API responded with ${response.status}: ${body}`);
+        continue;
+      }
+
+      const remaining = response.headers.get("x-requests-remaining");
+      const used = response.headers.get("x-requests-used");
+      if (remaining != null) {
+        console.log(`   API usage: ${used ?? "?"} used, ${remaining} remaining this month`);
+      }
+
+      anySuccess = true;
+      const events = (await response.json()) as OddsEvent[];
+
+      const fixtures = events
+        .filter((e) => {
+          const eventDate = utcToRomeDate(e.commence_time);
+          const eventTime = utcToRomeTime(e.commence_time);
+          return eventDate === date && isNotStarted(eventTime);
+        })
+        .map((e) => ({
+          homeTeam: e.home_team,
+          awayTeam: e.away_team,
+          league: label,
+          date,
+          time: utcToRomeTime(e.commence_time),
+          odds: extractOddsFromEvent(e.bookmakers, e.home_team, e.away_team),
+        }));
+
+      if (fixtures.length > 0) {
+        console.log(`   Found ${fixtures.length} match(es) for ${label}`);
+      }
+      allFixtures.push(...fixtures);
+    } catch (err) {
+      console.error(`   ❌ ${label} fetch failed:`, err);
+    }
   }
 
-  const remaining = response.headers.get("x-requests-remaining");
-  const used = response.headers.get("x-requests-used");
-  if (remaining != null) {
-    console.log(`   API usage: ${used ?? "?"} used, ${remaining} remaining this month`);
-  }
+  if (!anySuccess) return null;
 
-  const events = (await response.json()) as OddsEvent[];
-
-  return events
-    .filter((e) => {
-      const eventDate = utcToRomeDate(e.commence_time);
-      const eventTime = utcToRomeTime(e.commence_time);
-      return eventDate === date && isNotStarted(eventTime);
-    })
-    .map((e) => ({
-      homeTeam: e.home_team,
-      awayTeam: e.away_team,
-      league: "Serie A",
-      date,
-      time: utcToRomeTime(e.commence_time),
-      odds: extractOddsFromEvent(e.bookmakers, e.home_team, e.away_team),
-    }))
-    .sort((a, b) => a.time.localeCompare(b.time));
+  return allFixtures.sort((a, b) => a.time.localeCompare(b.time));
 }
 
 async function fetchFromFootballData(date: string): Promise<Fixture[] | null> {
@@ -187,37 +223,60 @@ async function fetchFromFootballData(date: string): Promise<Fixture[] | null> {
 
   console.log(`⚽ Fallback: fetching fixtures from football-data.org (no odds)...`);
 
-  const url = new URL(`${FOOTBALL_DATA_BASE}/competitions/${SERIE_A_CODE}/matches`);
-  url.searchParams.set("dateFrom", date);
-  url.searchParams.set("dateTo", date);
+  const allFixtures: Fixture[] = [];
+  let anySuccess = false;
 
-  const response = await fetch(url.toString(), {
-    headers: { "X-Auth-Token": apiKey },
-  });
+  for (const { code, label } of FOOTBALL_DATA_COMPETITIONS) {
+    try {
+      const url = new URL(`${FOOTBALL_DATA_BASE}/competitions/${code}/matches`);
+      url.searchParams.set("dateFrom", date);
+      url.searchParams.set("dateTo", date);
 
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    console.error(`❌ football-data.org responded with ${response.status}: ${body}`);
-    return null;
+      const response = await fetch(url.toString(), {
+        headers: { "X-Auth-Token": apiKey },
+      });
+
+      if (!response.ok) {
+        // Free tier may not include all competitions — skip silently
+        if (response.status === 403 || response.status === 404) {
+          console.log(`   ℹ️  ${label}: not available on free tier (skipped)`);
+          continue;
+        }
+        const body = await response.text().catch(() => "");
+        console.error(`   ❌ football-data.org ${label} ${response.status}: ${body}`);
+        continue;
+      }
+
+      const data = (await response.json()) as FDMatchesResponse;
+      if (data.errorCode) {
+        console.error(`   ❌ football-data.org ${label} error: ${data.message}`);
+        continue;
+      }
+
+      anySuccess = true;
+      const fixtures = data.matches
+        .filter((m) => ["SCHEDULED", "TIMED"].includes(m.status))
+        .map((m) => ({
+          homeTeam: m.homeTeam.name,
+          awayTeam: m.awayTeam.name,
+          league: label,
+          date,
+          time: utcToRomeTime(m.utcDate),
+        }))
+        .filter((f) => isNotStarted(f.time));
+
+      if (fixtures.length > 0) {
+        console.log(`   Found ${fixtures.length} match(es) for ${label}`);
+      }
+      allFixtures.push(...fixtures);
+    } catch (err) {
+      console.error(`   ❌ ${label} fetch failed:`, err);
+    }
   }
 
-  const data = (await response.json()) as FDMatchesResponse;
-  if (data.errorCode) {
-    console.error(`❌ football-data.org error: ${data.message}`);
-    return null;
-  }
+  if (!anySuccess) return null;
 
-  return data.matches
-    .filter((m) => ["SCHEDULED", "TIMED"].includes(m.status))
-    .map((m) => ({
-      homeTeam: m.homeTeam.name,
-      awayTeam: m.awayTeam.name,
-      league: m.competition.name,
-      date,
-      time: utcToRomeTime(m.utcDate),
-    }))
-    .filter((f) => isNotStarted(f.time))
-    .sort((a, b) => a.time.localeCompare(b.time));
+  return allFixtures.sort((a, b) => a.time.localeCompare(b.time));
 }
 
 // ── Tennis ────────────────────────────────────────────────────

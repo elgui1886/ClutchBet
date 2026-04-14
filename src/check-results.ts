@@ -21,7 +21,7 @@ import type { ProfileConfig } from "./content-generator/state.js";
 type ProfileCfg = NonNullable<ProfileConfig["config"]>;
 
 const FOOTBALL_DATA_BASE = "https://api.football-data.org/v4";
-const SERIE_A_CODE = "SA";
+const FOOTBALL_DATA_COMPETITIONS = ["SA", "CL", "CI"]; // Serie A, Champions League, Coppa Italia
 const UPDATE_PROMPT_PATH = path.resolve("prompts", "results-update.md");
 
 interface MatchResult {
@@ -152,45 +152,49 @@ async function fetchResults(bets: TrackedBet[], config: ProfileCfg): Promise<Mat
   const allResults: MatchResult[] = [];
 
   for (const date of dates) {
-    try {
-      const url = new URL(`${FOOTBALL_DATA_BASE}/competitions/${SERIE_A_CODE}/matches`);
-      url.searchParams.set("dateFrom", date);
-      url.searchParams.set("dateTo", date);
-      url.searchParams.set("status", "FINISHED");
+    for (const competition of FOOTBALL_DATA_COMPETITIONS) {
+      try {
+        const url = new URL(`${FOOTBALL_DATA_BASE}/competitions/${competition}/matches`);
+        url.searchParams.set("dateFrom", date);
+        url.searchParams.set("dateTo", date);
+        url.searchParams.set("status", "FINISHED");
 
-      const response = await fetch(url.toString(), {
-        headers: { "X-Auth-Token": apiKey },
-      });
-
-      if (!response.ok) {
-        const body = await response.text().catch(() => "");
-        console.error(`❌ football-data.org ${response.status} for date ${date}: ${body}`);
-        continue;
-      }
-
-      const data = (await response.json()) as {
-        matches: Array<{
-          id: number;
-          status: string;
-          homeTeam: { name: string };
-          awayTeam: { name: string };
-          score: { fullTime: { home: number; away: number } };
-        }>;
-      };
-
-      for (const match of data.matches) {
-        if (match.status !== "FINISHED") continue;
-        allResults.push({
-          fixtureId: match.id,
-          homeTeam: match.homeTeam.name,
-          awayTeam: match.awayTeam.name,
-          homeGoals: match.score.fullTime.home,
-          awayGoals: match.score.fullTime.away,
-          status: "FT",
+        const response = await fetch(url.toString(), {
+          headers: { "X-Auth-Token": apiKey },
         });
+
+        if (!response.ok) {
+          // Free tier may not include all competitions — skip silently
+          if (response.status === 403 || response.status === 404) continue;
+          const body = await response.text().catch(() => "");
+          console.error(`❌ football-data.org ${competition} ${response.status} for date ${date}: ${body}`);
+          continue;
+        }
+
+        const data = (await response.json()) as {
+          matches: Array<{
+            id: number;
+            status: string;
+            homeTeam: { name: string };
+            awayTeam: { name: string };
+            score: { fullTime: { home: number; away: number } };
+          }>;
+        };
+
+        for (const match of data.matches) {
+          if (match.status !== "FINISHED") continue;
+          allResults.push({
+            fixtureId: match.id,
+            homeTeam: match.homeTeam.name,
+            awayTeam: match.awayTeam.name,
+            homeGoals: match.score.fullTime.home,
+            awayGoals: match.score.fullTime.away,
+            status: "FT",
+          });
+        }
+      } catch (err) {
+        console.error(`❌ Failed to fetch results for ${competition} ${date}:`, err);
       }
-    } catch (err) {
-      console.error(`❌ Failed to fetch results for ${date}:`, err);
     }
   }
 
