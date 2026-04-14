@@ -18,11 +18,12 @@ export async function generateBackground(
   console.log(`  🎨 Generating AI background for "${formatName}"...`);
 
   const response = await openai.images.generate({
-    model: "gpt-image-1",
+    model: "dall-e-3",
     prompt,
     n: 1,
     size: "1024x1792",
-    quality: "medium",
+    quality: "standard",
+    response_format: "b64_json",
   });
 
   const imageData = response.data?.[0];

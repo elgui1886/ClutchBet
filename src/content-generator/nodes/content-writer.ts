@@ -37,14 +37,22 @@ function nowMinutesInRome(): number {
   return h * 60 + m;
 }
 
+/** Earliest hour at which bet-format posts can be published (12:00). */
+const PUBLISH_START_MINUTES = 12 * 60;
+
 /**
- * Computes dynamic publish time: 1h before the earliest kickoff in the schedina.
+ * Computes dynamic publish time by spreading posts evenly from 12:00
+ * until 1h before the earliest kickoff in the schedina.
+ *
+ * Example: 4 bet posts with matches at 21:00 → 12:00, 14:40, 17:20, 20:00
+ *
  * Returns undefined if the computed time is already past (publish immediately).
  */
 function computeDynamicPublishTime(
   bets: BetSelection[] | undefined,
   fixtures: Fixture[],
-  offsetMinutes: number = 0,
+  formatIndex: number,
+  totalBetFormats: number,
 ): string | undefined {
   let kickoffs: string[] = [];
   if (bets && bets.length > 0) {
@@ -57,7 +65,21 @@ function computeDynamicPublishTime(
 
   kickoffs.sort();
   const [h, m] = kickoffs[0].split(":").map(Number);
-  const pubMinutes = h * 60 + m - 60 + offsetMinutes;
+  const deadlineMinutes = h * 60 + m - 60; // 1h before earliest kickoff
+
+  let pubMinutes: number;
+
+  if (deadlineMinutes <= PUBLISH_START_MINUTES) {
+    // Matches are early (before 13:00) — fall back to 10-min spacing from now
+    pubMinutes = PUBLISH_START_MINUTES + formatIndex * 10;
+  } else if (totalBetFormats <= 1) {
+    // Single bet post → publish at deadline
+    pubMinutes = deadlineMinutes;
+  } else {
+    // Spread evenly: first post at 12:00, last post at deadline
+    const interval = (deadlineMinutes - PUBLISH_START_MINUTES) / (totalBetFormats - 1);
+    pubMinutes = Math.round(PUBLISH_START_MINUTES + interval * formatIndex);
+  }
 
   if (pubMinutes <= nowMinutesInRome()) return undefined;
 
@@ -98,6 +120,12 @@ export async function contentWriterNode(
   const template = loadPrompt(CONTENT_PROMPT_PATH);
   const items: ContentItem[] = [];
   let betFormatIndex = 0;
+
+  // Count bet-containing formats so we can spread their publish times evenly
+  const totalBetFormats = scheduledFormats.filter((s) => {
+    const f = profile.formats.find((fmt) => fmt.slug === s);
+    return f && hasBets(f);
+  }).length;
 
   for (const slug of scheduledFormats) {
     const format = profile.formats.find((f) => f.slug === slug);
@@ -191,12 +219,12 @@ export async function contentWriterNode(
     // Compute publish time: dynamic for bet formats, fixed for non-bet formats
     let publishTime = format.publish_time;
     if (hasBets(format) && fixtures.length > 0) {
-      publishTime = computeDynamicPublishTime(bets, fixtures, betFormatIndex * 10);
+      publishTime = computeDynamicPublishTime(bets, fixtures, betFormatIndex, totalBetFormats);
       betFormatIndex++;
       if (publishTime) {
-        console.log(`  ⏰ Dynamic publish time: ${publishTime} (1h before earliest kickoff)`);
+        console.log(`  ⏰ Dynamic publish time: ${publishTime} (spread from 12:00 to 1h before kickoff, ${betFormatIndex}/${totalBetFormats})`);
       } else {
-        console.log(`  ⏰ Earliest kickoff is less than 1h away — publishing immediately`);
+        console.log(`  ⏰ Computed time already past — publishing immediately`);
       }
     }
 
