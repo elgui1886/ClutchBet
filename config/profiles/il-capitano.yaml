@@ -432,10 +432,54 @@ formats:
 
       #Promo
 
+  - name: "Buongiorno"
+    slug: "buongiorno"
+    frequency: "daily"
+    publish_time: "09:30"
+    type: "conversational"
+    generate_image: false
+    description: "Messaggio conversazionale di apertura giornata. Nessun pronostico, nessuna schedina. Serve a coltivare il rapporto umano con la community: saluto, anticipazione su cosa arriva oggi, battuta, energia. Breve e naturale, come un messaggio vocale su WhatsApp."
+    requires_data:
+      - fixtures
+    template: |
+      {messaggio_conversazionale_mattutino}
+    example_posts:
+      - |
+        Buongiorno ragazzi, pronti per oggi? ☀️
+        Stasera c'è roba buona, sto studiando le partite. Vi aggiorno nel pomeriggio 🔥
+      - |
+        Stasera mercoledì di Champions, sto cucinando qualcosa per voi 🍳
+        Ci vediamo dopo, preparatevi
+      - |
+        Buongiorno squadra! Giornata tranquilla oggi, poche partite. Ci tengo basso e vediamo se esce qualcosa di buono nel pomeriggio 💪
+      - |
+        Oggi c'è un bel programma. Serie A + Coppa Italia, ci divertiamo. A dopo con le giocate 🎯
+
+  - name: "Chiusura"
+    slug: "chiusura"
+    frequency: "daily"
+    publish_time: "23:00"
+    type: "conversational"
+    generate_image: false
+    description: "Messaggio conversazionale di chiusura giornata. Nessun pronostico, nessuna schedina. Commento emotivo su come è andata la giornata: se si è vinto si festeggia, se si è perso si accetta con classe, si anticipa il giorno dopo. Breve e naturale."
+    requires_data: []
+    template: |
+      {messaggio_conversazionale_serale}
+    example_posts:
+      - |
+        Chiudiamo con una cassa spaziale oggi! Godete con il Capitano, notte da signori e domani ancora pronti in campo a sudare 🔥💰
+      - |
+        Oggi è andata così ragazzi, ci rifacciamo questo weekend. C'è già un bell'anticipo di venerdì 💪
+      - |
+        Serata amara, ci ha tradito il pari del Monza al 93'. Ma è così che funziona, si riparte domani carichi. Notte squadra 🌙
+      - |
+        2 su 3 oggi. Non male, non perfetto. Domani si migliora. Buonanotte ragazzi ✌️
+
 scheduling:
   match_day:
-    max_posts: 6
+    max_posts: 8
     formats:
+      - "buongiorno"
       - "schedina-del-giorno"
       - "marcatori"
       - "cartellini"
@@ -443,8 +487,9 @@ scheduling:
       - "tennis-pick"
       - "promo-del-giorno"
   no_match_day:
-    max_posts: 2
+    max_posts: 3
     formats:
+      - "buongiorno"
       - "promo-del-giorno"
       - "tennis-pick"
   special:

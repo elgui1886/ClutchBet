@@ -20,6 +20,9 @@ const CONTENT_PROMPT_PATH = path.resolve("prompts", "content-post.md");
 
 /** Formats that contain trackable bets (require fixture/odds data) */
 function hasBets(format: FormatConfig): boolean {
+  // Conversational formats (buongiorno, chiusura) use fixture data for context
+  // but don't propose actual bets
+  if (format.type === "conversational") return false;
   return format.requires_data.some((d) =>
     ["fixtures", "odds", "referee_stats", "player_cards", "tennis_fixtures"].includes(d)
   );

@@ -220,6 +220,77 @@
     text-shadow: 0 0 20px rgba(var(--primary-rgb), 0.4);
   }
 
+  /* Bet result status indicators */
+  .bet-status {
+    flex-shrink: 0;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    margin-left: 16px;
+  }
+
+  .bet-status-won {
+    background: rgba(34, 197, 94, 0.2);
+    border: 2px solid rgba(34, 197, 94, 0.6);
+    box-shadow: 0 0 15px rgba(34, 197, 94, 0.3);
+  }
+
+  .bet-status-lost {
+    background: rgba(239, 68, 68, 0.2);
+    border: 2px solid rgba(239, 68, 68, 0.6);
+    box-shadow: 0 0 15px rgba(239, 68, 68, 0.3);
+  }
+
+  .bet-status-pending {
+    background: rgba(250, 204, 21, 0.15);
+    border: 2px solid rgba(250, 204, 21, 0.5);
+    box-shadow: 0 0 15px rgba(250, 204, 21, 0.2);
+  }
+
+  /* Won bet card highlight */
+  .bet-card.bet-won {
+    border-left-color: #22c55e;
+  }
+
+  .bet-card.bet-won .bet-index {
+    background: #22c55e;
+  }
+
+  /* Lost bet card */
+  .bet-card.bet-lost {
+    border-left-color: #ef4444;
+    opacity: 0.7;
+  }
+
+  .bet-card.bet-lost .bet-index {
+    background: #ef4444;
+  }
+
+  .bet-card.bet-lost .bet-quota-value {
+    text-decoration: line-through;
+    color: #ef4444;
+  }
+
+  /* Score label */
+  .bet-score {
+    font-size: 13px;
+    color: #94a3b8;
+    font-weight: 600;
+    margin-top: 3px;
+  }
+
+  .bet-score.score-won {
+    color: #22c55e;
+  }
+
+  .bet-score.score-lost {
+    color: #ef4444;
+  }
+
   /* Total section */
   .total-section {
     margin-top: 35px;
@@ -325,7 +396,7 @@
   /**
    * @param {object} data
    * @param {string} data.title
-   * @param {Array} data.bets
+   * @param {Array} data.bets - each bet may have: homeTeam, awayTeam, betType, odd, result ('won'|'lost'|undefined), matchScore
    * @param {number} data.totalOdd
    * @param {object} data.branding
    * @param {string} data.branding.primary_color
@@ -379,16 +450,36 @@
 
     data.bets.forEach((bet, i) => {
       const card = document.createElement('div');
-      card.className = 'bet-card';
+      const statusClass = bet.result === 'won' ? ' bet-won' : bet.result === 'lost' ? ' bet-lost' : '';
+      card.className = 'bet-card' + statusClass;
+
+      // Build score line if available
+      const scoreLine = bet.matchScore
+        ? `<div class="bet-score ${bet.result === 'won' ? 'score-won' : bet.result === 'lost' ? 'score-lost' : ''}">${escapeHtml(bet.matchScore)}</div>`
+        : '';
+
+      // Build status indicator if result tracking is present
+      let statusHtml = '';
+      if (bet.result === 'won') {
+        statusHtml = '<div class="bet-status bet-status-won">✅</div>';
+      } else if (bet.result === 'lost') {
+        statusHtml = '<div class="bet-status bet-status-lost">❌</div>';
+      } else if (data.bets.some(b => b.result)) {
+        // Only show pending indicator when at least one bet has a result (in_corsa mode)
+        statusHtml = '<div class="bet-status bet-status-pending">⏳</div>';
+      }
+
       card.innerHTML = `
         <div class="bet-index">${i + 1}</div>
         <div class="bet-details">
           <div class="bet-match">${escapeHtml(bet.homeTeam)}<span class="separator">vs</span>${escapeHtml(bet.awayTeam)}</div>
           <div class="bet-type-label">${escapeHtml(bet.betType)}</div>
+          ${scoreLine}
         </div>
         <div class="bet-quota">
           <div class="bet-quota-value">${bet.odd.toFixed(2)}</div>
         </div>
+        ${statusHtml}
       `;
       container.appendChild(card);
     });

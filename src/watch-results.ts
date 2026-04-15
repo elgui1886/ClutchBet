@@ -5,17 +5,21 @@ import * as readline from "node:readline";
 import { parse as parseYaml } from "yaml";
 import { HumanMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
+import { CustomFile } from "telegram/client/uploads";
 import { loadPrompt } from "./shared/llm-utils.js";
 import {
   getPendingBets,
   updateBetResult,
   markRecapPublished,
   getActiveSchedine,
+  getSchedineForDate,
   profileSlugFromPath,
   type TrackedBet,
   type Schedina,
 } from "./shared/bet-tracker.js";
 import { createTelegramClient, resolvePeer } from "./shared/telegram-utils.js";
+import { renderBetSlipImage, type BetSlip } from "./generation/image-renderer.js";
+import { generateBackground } from "./generation/background-generator.js";
 import type { ProfileConfig } from "./content-generator/state.js";
 
 type ProfileCfg = NonNullable<ProfileConfig["config"]>;
@@ -25,6 +29,7 @@ type ProfileCfg = NonNullable<ProfileConfig["config"]>;
 const FOOTBALL_DATA_BASE = "https://api.football-data.org/v4";
 const DEFAULT_COMPETITIONS = ["SA", "CL", "CI"];
 const UPDATE_PROMPT_PATH = path.resolve("prompts", "results-update.md");
+const CHIUSURA_PROMPT_PATH = path.resolve("prompts", "chiusura.md");
 
 const MATCH_DURATION_MS = 2 * 60 * 60 * 1000;   // 2 hours
 const RETRY_DELAY_MS = 30 * 60 * 1000;           // 30 minutes
@@ -54,6 +59,7 @@ interface ScheduledCheck {
 const scheduledChecks = new Map<string, ScheduledCheck>();
 let isProcessing = false;
 const checkQueue: Array<() => Promise<void>> = [];
+let chiusuraPublished = false;
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -266,6 +272,16 @@ async function runCheck(key: string, config: ProfileCfg, profile: ProfileConfig,
   } else {
     scheduledChecks.delete(key);
   }
+
+  // Check if all daily bets are resolved → publish chiusura
+  if (!chiusuraPublished) {
+    const profileSlug = check.bets[0]?.profile ?? "";
+    const remaining = getPendingBets(profileSlug);
+    if (remaining.length === 0) {
+      console.log(`\n🌙 All daily bets resolved. Generating chiusura...`);
+      await enqueueCheck(() => publishChiusura(config, profile, profileSlug));
+    }
+  }
 }
 
 // ── Update post generation & publishing ──────────────────────
@@ -305,6 +321,52 @@ async function publishUpdate(
   // Generate update post
   const updateText = await generateUpdatePost(profile, resolved, schedine);
 
+  // Render updated bet-slip images for schedine in_corsa or vinta
+  const slipImages: Array<{ slipId: string; image: Buffer }> = [];
+  for (const s of schedine) {
+    if (s.status === "in_corsa" || s.status === "vinta") {
+      try {
+        const slip: BetSlip = {
+          title: s.status === "vinta"
+            ? `${s.formatName} ✅ VINTA`
+            : `${s.formatName} 🔄 IN CORSA`,
+          bets: s.bets.map((b) => ({
+            homeTeam: b.homeTeam,
+            awayTeam: b.awayTeam,
+            betType: b.selection,
+            odd: b.odds,
+            result: b.result === "won" ? "won" : b.result === "lost" ? "lost" : undefined,
+            matchScore: b.matchScore,
+          })),
+          totalOdd: s.totalOdds,
+        };
+
+        let backgroundBase64: string | undefined;
+        if (profile.branding) {
+          try {
+            backgroundBase64 = await generateBackground(
+              profile.branding,
+              s.formatName,
+            );
+          } catch (bgErr) {
+            console.log(`  ⚠️  AI background generation failed: ${bgErr}. Using plain background.`);
+          }
+        }
+
+        const imageBuffer = await renderBetSlipImage(
+          slip,
+          profile.branding,
+          profile.profile.name,
+          backgroundBase64,
+        );
+        slipImages.push({ slipId: s.slipId, image: imageBuffer });
+        console.log(`  🖼️  Rendered updated bet-slip for ${s.formatName} (${s.status})`);
+      } catch (err) {
+        console.log(`  ⚠️  Failed to render updated bet-slip for ${s.formatName}: ${err}`);
+      }
+    }
+  }
+
   console.log("\n" + "=".repeat(60));
   console.log("📝 UPDATE POST\n");
   console.log(updateText);
@@ -319,7 +381,7 @@ async function publishUpdate(
   }
 
   if (shouldPublish && config.publishChannel) {
-    await publishPost(updateText, config.publishChannel);
+    await publishPost(updateText, config.publishChannel, slipImages.map(s => s.image));
     markRecapPublished(resolved.map((b) => b.id));
     console.log("✅ Aggiornamento pubblicato.");
   } else if (!shouldPublish) {
@@ -558,14 +620,163 @@ async function generateUpdatePost(
 
 // ── Publishing ───────────────────────────────────────────────
 
-async function publishPost(text: string, channel: string): Promise<void> {
+async function publishPost(text: string, channel: string, images?: Buffer[]): Promise<void> {
   const client = await createTelegramClient();
   try {
     const peer = resolvePeer(channel);
-    await client.sendMessage(peer, { message: text });
+
+    if (images && images.length > 0) {
+      // Send first image with text as caption (or separate if too long)
+      const firstImage = images[0];
+      const file = new CustomFile("update.png", firstImage.length, "", firstImage);
+
+      if (text.length <= 1024) {
+        await client.sendFile(peer, { file, caption: text });
+      } else {
+        await client.sendFile(peer, { file });
+        await client.sendMessage(peer, { message: text });
+      }
+
+      // Send remaining images without caption
+      for (let i = 1; i < images.length; i++) {
+        const img = images[i];
+        const f = new CustomFile(`update-${i + 1}.png`, img.length, "", img);
+        await client.sendFile(peer, { file: f });
+      }
+    } else {
+      await client.sendMessage(peer, { message: text });
+    }
   } finally {
     await client.disconnect();
   }
+}
+
+// ── Chiusura (end-of-day conversational message) ─────────────
+
+async function publishChiusura(
+  config: ProfileCfg,
+  profile: ProfileConfig,
+  profileSlug: string,
+): Promise<void> {
+  if (chiusuraPublished) return;
+  chiusuraPublished = true;
+
+  const today = new Date().toISOString().split("T")[0];
+  const schedine = getSchedineForDate(today, profileSlug);
+
+  if (schedine.length === 0) {
+    console.log("ℹ️  No schedine for today. Skipping chiusura.");
+    return;
+  }
+
+  // Find the chiusura format config for example posts
+  const chiusuraFormat = profile.formats.find((f) => f.slug === "chiusura");
+  const examplePosts = chiusuraFormat?.example_posts?.map((e, i) => `Esempio ${i + 1}:\n${e}`).join("\n\n") ?? "";
+
+  const chiusuraText = await generateChiusura(profile, schedine, examplePosts);
+
+  console.log("\n" + "=".repeat(60));
+  console.log("🌙 CHIUSURA POST\n");
+  console.log(chiusuraText);
+  console.log("=".repeat(60));
+
+  const reviewBeforePublish = config.reviewBeforePublish ?? false;
+  let shouldPublish = true;
+
+  if (reviewBeforePublish) {
+    const answer = await askUser("\nPubblicare la chiusura? (s/n): ");
+    shouldPublish = answer.toLowerCase() === "s" || answer.toLowerCase() === "si";
+  }
+
+  if (shouldPublish && config.publishChannel) {
+    await publishPost(chiusuraText, config.publishChannel);
+    console.log("✅ Chiusura pubblicata.");
+  } else if (!shouldPublish) {
+    console.log("⏭️  Chiusura non pubblicata.");
+  } else {
+    console.log("⚠️  No publish channel configured.");
+  }
+}
+
+async function generateChiusura(
+  profile: ProfileConfig,
+  schedine: Schedina[],
+  examplePosts: string,
+): Promise<string> {
+  const template = loadPrompt(CHIUSURA_PROMPT_PATH);
+
+  const tonePrinciples = profile.tone.principles
+    .map((p, i) => `${i + 1}. ${p}`)
+    .join("\n");
+  const examplePhrases = profile.tone.example_phrases
+    .map((p) => `- "${p}"`)
+    .join("\n");
+  const forbiddenPhrases = profile.tone.forbidden_phrases
+    .map((p) => `- "${p}"`)
+    .join("\n");
+
+  // Build daily summary
+  const vinte = schedine.filter((s) => s.status === "vinta");
+  const quasiVinte = schedine.filter(
+    (s) => s.status === "bruciata" && s.bets.filter((b) => b.result === "lost").length === 1
+  );
+  const bruciate = schedine.filter(
+    (s) => s.status === "bruciata" && s.bets.filter((b) => b.result === "lost").length > 1
+  );
+
+  let dailySummary = "";
+  if (vinte.length > 0) {
+    dailySummary += `Schedine VINTE oggi: ${vinte.length}\n`;
+    for (const s of vinte) {
+      dailySummary += `  ✅ ${s.formatName} — quota ${s.totalOdds}\n`;
+    }
+  }
+  if (quasiVinte.length > 0) {
+    dailySummary += `Schedine quasi-vinte (perse per 1 evento): ${quasiVinte.length}\n`;
+    for (const s of quasiVinte) {
+      const lostBet = s.bets.find((b) => b.result === "lost");
+      dailySummary += `  😤 ${s.formatName} — bruciata per ${lostBet?.homeTeam}-${lostBet?.awayTeam}\n`;
+    }
+  }
+  if (bruciate.length > 0) {
+    dailySummary += `Altre schedine perse: ${bruciate.length} (NON menzionarle nel post)\n`;
+  }
+  if (vinte.length === 0 && quasiVinte.length === 0) {
+    dailySummary += "Giornata senza vincite particolari. Accetta con classe e guarda avanti.\n";
+  }
+
+  // Tomorrow preview — simple day-of-week hint
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const dayNames = ["domenica", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato"];
+  const tomorrowDay = dayNames[tomorrow.getDay()];
+  const tomorrowPreview = `Domani è ${tomorrowDay}. Accenna brevemente a domani se vuoi, senza dettagli specifici.`;
+
+  const prompt = template
+    .replace("{profile_name}", profile.profile.name)
+    .replace("{claim}", profile.profile.claim)
+    .replace("{tone_principles}", tonePrinciples)
+    .replace("{example_phrases}", examplePhrases)
+    .replace("{forbidden_phrases}", forbiddenPhrases)
+    .replace("{register}", profile.tone.register)
+    .replace("{daily_summary}", dailySummary)
+    .replace("{tomorrow_preview}", tomorrowPreview)
+    .replace("{example_posts}", examplePosts)
+    .replace("{emoji_max}", String(profile.tone.emoji_max));
+
+  const model = new ChatOpenAI({
+    modelName: process.env.OPENAI_MODEL ?? "gpt-4o",
+    temperature: 0.8,
+    openAIApiKey: process.env.OPENAI_API_KEY,
+    configuration: { baseURL: process.env.OPENAI_BASE_URL },
+  });
+
+  const response = await model.invoke([new HumanMessage(prompt)]);
+  return (
+    typeof response.content === "string"
+      ? response.content
+      : JSON.stringify(response.content)
+  ).trim();
 }
 
 // ── Utilities ────────────────────────────────────────────────

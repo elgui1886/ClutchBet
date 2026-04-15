@@ -11,6 +11,8 @@ export interface BetSlip {
     awayTeam: string;
     betType: string;
     odd: number;
+    result?: "won" | "lost";
+    matchScore?: string;
   }>;
   totalOdd: number;
 }
