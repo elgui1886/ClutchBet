@@ -1,4 +1,4 @@
-import "dotenv/config";
+import dotenv from "dotenv"; dotenv.config({ override: true });
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { ChatOpenAI } from "@langchain/openai";
