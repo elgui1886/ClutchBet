@@ -15,6 +15,7 @@ export interface RawPost {
   text: string;
   date: string;     // ISO date string
   hasImage: boolean;
+  imageBase64?: string;  // Base64-encoded JPEG/PNG if downloaded
 }
 
 export interface ScrapeResult {
@@ -189,7 +190,19 @@ export async function scrapeChannelPage(
 
         if (!text.trim() && !hasImage) continue;
 
-        posts.push({ msgId: msg.id, text, date, hasImage });
+        let imageBase64: string | undefined;
+        if (hasImage) {
+          try {
+            const buffer = await client.downloadMedia(msg, {}) as Buffer;
+            if (buffer && buffer.length > 0) {
+              imageBase64 = buffer.toString("base64");
+            }
+          } catch {
+            // Non-critical — continue without image data
+          }
+        }
+
+        posts.push({ msgId: msg.id, text, date, hasImage, imageBase64 });
         remaining--;
         if (remaining <= 0) break;
       }

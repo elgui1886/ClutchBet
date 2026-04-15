@@ -110,7 +110,7 @@ Per ogni selezione:
 - Includi **tutti** i post del batch nell'output, anche quelli non-tips
 - `idx` dell'output deve corrispondere esattamente all'`idx` dell'input
 - I testi sono in italiano; alcuni post potrebbero essere molto brevi, emoji-only, o solo immagine
-- Post con `has_image: true` e testo vuoto: classificali come `"tips_new"` solo se il canale è di scommesse e il pattern suggerisce una schedina. Altrimenti usa `"interaction"`.
+- **Post con immagine (`has_image: true`)**: molto probabilmente l'immagine è una **bet slip** (schedina scommesse). Leggila attentamente: contiene le partite, i mercati, le quote e la quota totale. Classificali come `"tips_new"` e `is_tips: true` ed estrai le selezioni dall'immagine.
 - Se un campo non è determinabile con certezza, usa `null` (non inventare valori)
 - Mantieni coerenza nei nomi di competizioni ed eventi tra batch diversi
 - Per post non-tips: `tips` deve essere `[]`
