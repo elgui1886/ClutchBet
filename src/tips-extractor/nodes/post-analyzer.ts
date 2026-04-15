@@ -3,7 +3,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage } from "@langchain/core/messages";
-import type { TipsExtractorStateType, AnalyzedPost, LLMSelection } from "../state.js";
+import type { TipsExtractorStateType, AnalyzedPost, AnalyzedTip, LLMTip } from "../state.js";
 import type { RawPost } from "../../shared/channel-scraper.js";
 
 const LLM_BATCH_SIZE = 15;
@@ -26,10 +26,7 @@ interface LLMPostResult {
   post_type: "tips_new" | "tips_update" | "interaction";
   is_tips: boolean;
   tips_first_event_timestamp: string | null;
-  tips_event_count: number | null;
-  tips_total_odds: number | null;
-  tips_topic: string | null;
-  selections: LLMSelection[];
+  tips: LLMTip[];
 }
 
 interface LLMResponse {
@@ -41,7 +38,6 @@ async function analyzeBatch(
   promptTemplate: string,
   affiliateName: string,
   batchPosts: RawPost[],
-  batchOffset: number
 ): Promise<AnalyzedPost[]> {
   const batchInput: BatchInputItem[] = batchPosts.map((p, i) => ({
     idx: i,
@@ -71,6 +67,13 @@ async function analyzeBatch(
 
   return results.map((result) => {
     const rawPost = batchPosts[result.idx];
+    const tips: AnalyzedTip[] = (result.tips ?? []).map((t: LLMTip) => ({
+      topic: t.topic ?? null,
+      totalOdds: t.total_odds ?? null,
+      selectionsCount: (t.selections ?? []).length,
+      selections: t.selections ?? [],
+    }));
+
     return {
       rawPost,
       postType: result.post_type,
@@ -78,10 +81,8 @@ async function analyzeBatch(
       tipsFirstEventTimestamp: result.is_tips
         ? (result.tips_first_event_timestamp ?? null)
         : null,
-      tipsEventCount: result.is_tips ? (result.tips_event_count ?? null) : null,
-      tipsTotalOdds: result.is_tips ? (result.tips_total_odds ?? null) : null,
-      tipsTopic: result.is_tips ? (result.tips_topic ?? null) : null,
-      selections: result.is_tips ? (result.selections ?? []) : [],
+      tipsEventCount: result.is_tips ? tips.length : null,
+      tips: result.is_tips ? tips : [],
     } satisfies AnalyzedPost;
   });
 }
@@ -132,7 +133,6 @@ export async function postAnalyzerNode(
         promptTemplate,
         affiliateName,
         batchPosts,
-        batchStart
       );
       allAnalyzed.push(...results);
       console.log(`  ✅ Analyzed ${results.length} post(s)`);
@@ -142,7 +142,6 @@ export async function postAnalyzerNode(
         (err as Error).message
       );
       failedBatches++;
-      // Push placeholders so post indices remain consistent with rawPosts
       for (const rawPost of batchPosts) {
         allAnalyzed.push({
           rawPost,
@@ -150,9 +149,7 @@ export async function postAnalyzerNode(
           isTips: false,
           tipsFirstEventTimestamp: null,
           tipsEventCount: null,
-          tipsTotalOdds: null,
-          tipsTopic: null,
-          selections: [],
+          tips: [],
         });
       }
     }
@@ -167,8 +164,9 @@ export async function postAnalyzerNode(
   }
 
   const tipsCount = allAnalyzed.filter((p) => p.isTips).length;
+  const totalTips = allAnalyzed.reduce((sum, p) => sum + (p.tipsEventCount ?? 0), 0);
   console.log(
-    `\n✅ LLM analysis complete: ${allAnalyzed.length} posts processed, ${tipsCount} tips found\n`
+    `\n✅ LLM analysis complete: ${allAnalyzed.length} posts processed, ${tipsCount} posts with tips, ${totalTips} total tips found\n`
   );
 
   return { analyzedPosts: allAnalyzed };

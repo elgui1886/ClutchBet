@@ -53,14 +53,24 @@ function initDb(): Database.Database {
       post_image                  INTEGER,
       tips_first_event_timestamp  TEXT,
       tips_distance_timestamp     TEXT,
-      tips_event_count            INTEGER,
-      tips_total_odds             REAL,
-      tips_topic                  TEXT
+      tips_event_count            INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS tips_db (
+      tip_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+      post_id      INTEGER NOT NULL,
+      tip_position INTEGER NOT NULL,
+      tip_topic    TEXT,
+      tip_odds     REAL,
+      tip_selections_count INTEGER,
+      FOREIGN KEY (post_id) REFERENCES post_db(post_id)
     );
 
     CREATE TABLE IF NOT EXISTS selections_db (
+      selection_id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      tip_id                 INTEGER NOT NULL,
       post_id                INTEGER NOT NULL,
-      selections_id          TEXT PRIMARY KEY,
+      selections_id          TEXT UNIQUE,
       selections_sport       TEXT,
       selections_competition TEXT,
       selections_event       TEXT,
@@ -68,6 +78,7 @@ function initDb(): Database.Database {
       selections_market      TEXT,
       selections_outcome     TEXT,
       selections_odds        REAL,
+      FOREIGN KEY (tip_id)  REFERENCES tips_db(tip_id),
       FOREIGN KEY (post_id) REFERENCES post_db(post_id)
     );
 
@@ -75,15 +86,33 @@ function initDb(): Database.Database {
       ON post_db(post_affiliate_name, telegram_msg_id);
   `);
 
-  // Migration: add telegram_msg_id to existing DBs that don't have it yet
-  try {
-    db.exec("ALTER TABLE post_db ADD COLUMN telegram_msg_id INTEGER");
-    db.exec(
-      "CREATE UNIQUE INDEX IF NOT EXISTS idx_post_channel_msgid ON post_db(post_affiliate_name, telegram_msg_id)"
-    );
-  } catch {
-    // Column already exists — no action needed
+  // Migrations: add columns to existing DBs
+  const migrations = [
+    "ALTER TABLE post_db ADD COLUMN telegram_msg_id INTEGER",
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_post_channel_msgid ON post_db(post_affiliate_name, telegram_msg_id)",
+    // Drop old columns no longer used (not possible in SQLite — just ignore)
+  ];
+  for (const sql of migrations) {
+    try { db.exec(sql); } catch { /* already applied */ }
   }
+
+  // Migrate selections_db: add tip_id and selection_id if missing
+  try { db.exec("ALTER TABLE selections_db ADD COLUMN tip_id INTEGER"); } catch { /* ok */ }
+  try { db.exec("ALTER TABLE selections_db ADD COLUMN selection_id INTEGER"); } catch { /* ok */ }
+  try { db.exec("ALTER TABLE selections_db ADD COLUMN post_id INTEGER"); } catch { /* ok */ }
+
+  // Create tips_db if it didn't exist before
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tips_db (
+      tip_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+      post_id      INTEGER NOT NULL,
+      tip_position INTEGER NOT NULL,
+      tip_topic    TEXT,
+      tip_odds     REAL,
+      tip_selections_count INTEGER,
+      FOREIGN KEY (post_id) REFERENCES post_db(post_id)
+    );
+  `);
 
   return db;
 }
@@ -109,6 +138,7 @@ export async function dbWriterNode(
   if (existingPostIds.length > 0) {
     const ids = existingPostIds.map((r) => r.post_id).join(",");
     db.exec(`DELETE FROM selections_db WHERE post_id IN (${ids})`);
+    db.exec(`DELETE FROM tips_db WHERE post_id IN (${ids})`);
     db.prepare("DELETE FROM post_db WHERE post_affiliate_name = ?").run(affiliateName);
     console.log(`🗄️  Cleared ${existingPostIds.length} existing post(s) for "${affiliateName}"\n`);
   } else {
@@ -123,7 +153,7 @@ export async function dbWriterNode(
 
   // Pre-load all existing selections_ids to avoid collisions
   const usedSelectionIds = new Set<string>(
-    (db.prepare("SELECT selections_id FROM selections_db").all() as { selections_id: string }[])
+    (db.prepare("SELECT selections_id FROM selections_db WHERE selections_id IS NOT NULL").all() as { selections_id: string }[])
       .map((r) => r.selections_id)
   );
 
@@ -132,24 +162,30 @@ export async function dbWriterNode(
       post_id, telegram_msg_id, post_affiliate_name, post_publication_timestamp,
       post_type, is_tips, post_text, post_image,
       tips_first_event_timestamp, tips_distance_timestamp,
-      tips_event_count, tips_total_odds, tips_topic
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      tips_event_count
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const insertTip = db.prepare(`
+    INSERT INTO tips_db (
+      post_id, tip_position, tip_topic, tip_odds, tip_selections_count
+    ) VALUES (?, ?, ?, ?, ?)
   `);
 
   const insertSelection = db.prepare(`
     INSERT INTO selections_db (
-      post_id, selections_id, selections_sport, selections_competition,
-      selections_event, selections_timestamp, selections_market,
-      selections_outcome, selections_odds
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      tip_id, post_id, selections_id,
+      selections_sport, selections_competition, selections_event,
+      selections_timestamp, selections_market, selections_outcome, selections_odds
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
+  let postsCount = 0;
   let tipsCount = 0;
   let selectionsCount = 0;
 
   const commitAll = db.transaction((posts: AnalyzedPost[]) => {
-    for (let i = 0; i < posts.length; i++) {
-      const post = posts[i];
+    for (const post of posts) {
       const postId = postIdCounter++;
       const distTs = post.isTips
         ? calcDistanceTimestamp(post.rawPost.date, post.tipsFirstEventTimestamp)
@@ -167,15 +203,29 @@ export async function dbWriterNode(
         post.isTips ? (post.tipsFirstEventTimestamp ?? null) : null,
         post.isTips ? distTs : null,
         post.isTips ? (post.tipsEventCount ?? null) : null,
-        post.isTips ? (post.tipsTotalOdds ?? null) : null,
-        post.isTips ? (post.tipsTopic ?? null) : null
       );
 
-      if (post.isTips && post.selections.length > 0 && result.changes > 0) {
+      if (result.changes === 0) continue;
+      postsCount++;
+
+      if (!post.isTips || post.tips.length === 0) continue;
+
+      for (let tipIdx = 0; tipIdx < post.tips.length; tipIdx++) {
+        const tip = post.tips[tipIdx];
+        const tipResult = insertTip.run(
+          postId,
+          tipIdx + 1,
+          tip.topic ?? null,
+          tip.totalOdds ?? null,
+          tip.selectionsCount,
+        );
+        const tipId = tipResult.lastInsertRowid as number;
         tipsCount++;
-        for (const sel of post.selections) {
+
+        for (const sel of tip.selections) {
           const selId = generateSelectionId(usedSelectionIds);
           insertSelection.run(
+            tipId,
             postId,
             selId,
             sel.sport ?? null,
@@ -184,7 +234,7 @@ export async function dbWriterNode(
             sel.timestamp ?? null,
             sel.market ?? null,
             sel.outcome ?? null,
-            sel.odds ?? null
+            sel.odds ?? null,
           );
           selectionsCount++;
         }
@@ -197,8 +247,8 @@ export async function dbWriterNode(
 
   console.log("─".repeat(50));
   console.log("✅ Database saved successfully!");
-  console.log(`   Posts written    : ${analyzedPosts.length}`);
-  console.log(`   Tips found       : ${tipsCount}`);
+  console.log(`   Posts written    : ${postsCount}`);
+  console.log(`   Tips written     : ${tipsCount}`);
   console.log(`   Selections       : ${selectionsCount}`);
   console.log(`   Database         : ${DB_PATH}`);
 

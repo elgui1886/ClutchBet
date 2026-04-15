@@ -27,18 +27,30 @@ Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta, senza tes
       "post_type": "tips_new",
       "is_tips": true,
       "tips_first_event_timestamp": "2026-01-15T15:00:00.000Z",
-      "tips_event_count": 3,
-      "tips_total_odds": 5.25,
-      "tips_topic": "La Bomba",
-      "selections": [
+      "tips": [
         {
-          "sport": "football",
-          "competition": "Serie A",
-          "event": "Juventus - Napoli",
-          "timestamp": "2026-01-15T15:00:00.000Z",
-          "market": "1X2",
-          "outcome": "1",
-          "odds": 2.10
+          "topic": "La Bomba",
+          "total_odds": 12.50,
+          "selections": [
+            {
+              "sport": "football",
+              "competition": "Champions League",
+              "event": "Inter - Barcelona",
+              "timestamp": "2026-01-15T20:45:00.000Z",
+              "market": "1X2",
+              "outcome": "1",
+              "odds": 2.50
+            },
+            {
+              "sport": "football",
+              "competition": "Serie A",
+              "event": "Juventus - Napoli",
+              "timestamp": "2026-01-15T15:00:00.000Z",
+              "market": "Over 2.5",
+              "outcome": "Over",
+              "odds": 5.00
+            }
+          ]
         }
       ]
     }
@@ -57,17 +69,23 @@ Restituisci ESCLUSIVAMENTE un JSON valido con questa struttura esatta, senza tes
 - `true` se il post contiene una proposta di giocata nuova (post_type = "tips_new")
 - `false` per "tips_update" e "interaction"
 
-### Campi tips_* (solo se is_tips=true, altrimenti null)
-- **tips_first_event_timestamp**: data e ora del primo evento nella giocata in formato ISO 8601 UTC. Se l'ora non è specificata usa `T15:00:00.000Z`. Se anno/mese sono deducibili dal contesto (es: "sabato" → prossimo sabato rispetto al timestamp del post), deducili. Se ambiguo, usa `null`.
-- **tips_event_count**: numero di eventi/selezioni nella giocata. Se è una singola = 1.
-- **tips_total_odds**: quota totale (prodotto di tutte le quote). Se non indicata esplicitamente, calcola tu moltiplicando le quote delle selezioni. Se non determinabile, `null`.
-- **tips_topic**: nome o rubrica ricorrente che l'affiliato usa per questa tipologia di giocata. Esempi: `"La Bomba"`, `"Lo Studio"`, `"I Cartellini"`, `"Daily"`, `"Super Combo"`. Se non c'è un titolo chiaro e riconoscibile, usa `"n/a"`.
+### tips_first_event_timestamp (solo se is_tips=true)
+Data e ora del primo evento tra tutte le tips in formato ISO 8601 UTC. Se l'ora non è specificata usa `T15:00:00.000Z`. Se ambiguo, usa `null`.
 
-### selections (solo se is_tips=true)
-Array di tutte le selezioni contenute nella giocata. Per ogni selezione:
+### tips (solo se is_tips=true, altrimenti array vuoto [])
+
+**IMPORTANTE — struttura a tre livelli:**
+Un post può contenere **più tip distinte** (giocate separate). Ad esempio un post che propone "BOMBER Q.12", "CARTELLINI Q.22" e "MULTIGOL Q.8" contiene 3 tip distinte, ognuna con le proprie selezioni.
+
+Ogni tip ha:
+- **topic**: nome o rubrica della giocata. Esempi: `"La Bomba"`, `"I Cartellini"`, `"Bomber Champions"`, `"Multigol"`, `"Super Combo"`. Se non c'è un titolo chiaro, usa `"n/a"`.
+- **total_odds**: quota totale della tip come numero decimale. Se indicata esplicitamente nel testo (es. "Q.12"), usa quella. Se non indicata, calcola moltiplicando le quote delle selezioni. Se non determinabile, `null`.
+- **selections**: array delle selezioni che compongono questa tip. Una singola (1 scommessa) ha 1 selezione. Una multipla a 3 gambe ha 3 selezioni.
+
+Per ogni selezione:
 - **sport**: `"football"` per calcio, `"tennis"` per tennis, `"basket"` per basket, `"other"` per altri sport
-- **competition**: usa sempre lo stesso nome per la stessa competizione. Esempi: `"Serie A"`, `"Serie B"`, `"Champions League"`, `"Europa League"`, `"Premier League"`, `"La Liga"`, `"Bundesliga"`, `"Ligue 1"`, `"FA Cup"`, `"Coppa Italia"`, `"Nations League"`, `"ATP Roma"`. Non abbreviare mai.
-- **event**: formato `"TeamA - TeamB"` per calcio (es: `"Juventus - Napoli"`), `"GiocatoreA - GiocatoreB"` per tennis (es: `"Sinner - Alcaraz"`). Usa sempre nomi completi, non abbreviazioni.
+- **competition**: usa sempre lo stesso nome per la stessa competizione. Esempi: `"Serie A"`, `"Serie B"`, `"Champions League"`, `"Europa League"`, `"Premier League"`, `"La Liga"`, `"Bundesliga"`, `"Ligue 1"`, `"FA Cup"`, `"Coppa Italia"`, `"Nations League"`. Non abbreviare mai.
+- **event**: formato `"TeamA - TeamB"` per calcio (es: `"Juventus - Napoli"`), `"GiocatoreA - GiocatoreB"` per tennis. Usa sempre nomi completi, non abbreviazioni.
 - **timestamp**: data e ora dell'evento in ISO 8601 UTC. Se mancante, usa lo stesso di `tips_first_event_timestamp`.
 - **market**: usa sempre lo stesso formato standard per lo stesso tipo di mercato. Esempi:
   - `"1X2"` per esito finale (1, X, 2)
@@ -92,6 +110,7 @@ Array di tutte le selezioni contenute nella giocata. Per ogni selezione:
 - Includi **tutti** i post del batch nell'output, anche quelli non-tips
 - `idx` dell'output deve corrispondere esattamente all'`idx` dell'input
 - I testi sono in italiano; alcuni post potrebbero essere molto brevi, emoji-only, o solo immagine
-- Post con `has_image: true` e testo vuoto: classificali come `"tips_new"` e `is_tips: true` solo se il canale è un canale di scommesse e il pattern suggerisce una schedina (immagine di bet slip). Altrimenti usa `"interaction"`.
+- Post con `has_image: true` e testo vuoto: classificali come `"tips_new"` solo se il canale è di scommesse e il pattern suggerisce una schedina. Altrimenti usa `"interaction"`.
 - Se un campo non è determinabile con certezza, usa `null` (non inventare valori)
 - Mantieni coerenza nei nomi di competizioni ed eventi tra batch diversi
+- Per post non-tips: `tips` deve essere `[]`

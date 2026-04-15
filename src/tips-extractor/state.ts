@@ -13,15 +13,29 @@ export interface LLMSelection {
   odds: number | null;
 }
 
+/** A single tip/giocata within a post (a post may contain multiple tips) */
+export interface LLMTip {
+  topic: string | null;
+  total_odds: number | null;
+  selections: LLMSelection[];
+}
+
+/** A single analyzed tip with its selections */
+export interface AnalyzedTip {
+  topic: string | null;
+  totalOdds: number | null;
+  selectionsCount: number;
+  selections: LLMSelection[];
+}
+
 export interface AnalyzedPost {
   rawPost: RawPost;
   postType: "tips_new" | "tips_update" | "interaction";
   isTips: boolean;
   tipsFirstEventTimestamp: string | null;
+  /** Number of distinct tips (giocate) in this post */
   tipsEventCount: number | null;
-  tipsTotalOdds: number | null;
-  tipsTopic: string | null;
-  selections: LLMSelection[];
+  tips: AnalyzedTip[];
 }
 
 export const TipsExtractorState = Annotation.Root({

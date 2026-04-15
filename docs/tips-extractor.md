@@ -1,182 +1,129 @@
 # Tips Extractor
 
-Tool che scarica i post storici di un canale Telegram di scommesse sportive, li classifica tramite LLM e salva i dati strutturati in un database SQLite.
+The Tips Extractor scrapes a Telegram channel's post history and uses an LLM to classify and extract structured betting data. Results are saved to `data/tips-analysis.db`.
 
----
-
-## Come si usa
+## Usage
 
 ```bash
-npm run tips-extractor
+npm run tips -- --channel=<channel_url_or_username> [--limit=100]
 ```
 
-Il canale da analizzare e il numero di post per run si configurano in `config/analysis.yaml`:
-
-```yaml
-channel: "https://web.telegram.org/k/#-1013023602"
-post_limit: 100
-```
-
-**Formati accettati per `channel`:**
-- URL Telegram Web: `https://web.telegram.org/k/#-1001259302052`
-- Link t.me: `https://t.me/channelname`
-- Username: `@channelname`
-- ID numerico: `1259302052`
-
----
-
-## Come funziona
-
-Il tool è implementato come grafo LangGraph a 3 nodi:
-
-```
-__start__
-    │
-history_scraper          ← scraping Telegram via GramJS
-    │
-    ├─ (nessun post) ──► __end__
-    │
-post_analyzer            ← classificazione LLM in batch da 15
-    │
-db_writer                ── salvataggio su SQLite
-    │
-__end__
-```
-
-### 1. `history_scraper`
-
-Legge `MIN(telegram_msg_id)` dal DB per il canale corrente:
-- **Prima run**: il valore è 0 → scarica i 100 post più recenti
-- **Run successive**: usa il msg_id più vecchio già in DB come punto di partenza e va ulteriormente indietro nella storia
-
-Questo permette di costruire la storia del canale incrementalmente senza re-scaricare post già processati.
-
-### 2. `post_analyzer`
-
-Invia i post all'LLM (configurato via `OPENAI_MODEL` nel `.env`) in batch da 15, usando il prompt in `prompts/tips-extractor.md`.
-
-Per ogni post classifica:
-- **`post_type`**: `tips_new` | `tips_update` | `interaction`
-- **`is_tips`**: `true` solo per `tips_new`
-- Metadati della giocata: timestamp primo evento, numero selezioni, quota totale, rubrica (es. "La Bomba")
-- Lista delle selezioni singole (sport, competizione, evento, mercato, esito, quota)
-
-In caso di errore su un batch, inserisce post placeholder di tipo `interaction` per mantenere la corrispondenza degli indici.
-
-### 3. `db_writer`
-
-Salva i dati in `data/tips-analysis.db`. La strategia è **per-canale**:
-- Cancella i post già presenti per quel canale (identificato dal titolo del canale)
-- Reinserisce tutto con `INSERT OR IGNORE` + indice univoco `(post_affiliate_name, telegram_msg_id)`
-- I dati di altri canali nello stesso DB non vengono mai toccati
-
----
-
-## Database: `data/tips-analysis.db`
-
-### Tabella `post_db`
-
-Ogni riga è un post Telegram analizzato.
-
-| Colonna | Tipo | Descrizione |
-|---|---|---|
-| `post_id` | INTEGER PK | ID numerico globale progressivo |
-| `telegram_msg_id` | INTEGER | ID nativo del messaggio Telegram |
-| `post_affiliate_name` | TEXT | Titolo del canale Telegram (chiave di raggruppamento) |
-| `post_publication_timestamp` | TEXT | Data/ora di pubblicazione (ISO 8601 UTC) |
-| `post_type` | TEXT | `tips_new`, `tips_update` o `interaction` |
-| `is_tips` | INTEGER | `1` se è una giocata nuova, `0` altrimenti |
-| `post_text` | TEXT | Testo completo del post |
-| `post_image` | INTEGER | `1` se il post contiene un'immagine |
-| `tips_first_event_timestamp` | TEXT | Data/ora del primo evento (solo per `is_tips=1`) |
-| `tips_distance_timestamp` | TEXT | Differenza in `HH:MM` tra pubblicazione e primo evento |
-| `tips_event_count` | INTEGER | Numero di selezioni nella giocata |
-| `tips_total_odds` | REAL | Quota totale della giocata |
-| `tips_topic` | TEXT | Rubrica del canale (es. "La Bomba", "Daily") |
-
-**Indice univoco:** `(post_affiliate_name, telegram_msg_id)` — garantisce idempotenza sui re-run.
-
----
-
-### Tabella `selections_db`
-
-Ogni riga è una singola selezione all'interno di una giocata. Una giocata (post) può avere N selezioni.
-
-| Colonna | Tipo | Descrizione |
-|---|---|---|
-| `post_id` | INTEGER FK | Riferimento a `post_db.post_id` |
-| `selections_id` | TEXT PK | ID univoco a 6 caratteri (alfabeto italiano: no J,K,W,X,Y) |
-| `selections_sport` | TEXT | `football`, `tennis`, `basket`, `other` |
-| `selections_competition` | TEXT | Nome completo della competizione (es. `Serie A`) |
-| `selections_event` | TEXT | `TeamA - TeamB` (calcio) o `GiocA - GiocB` (tennis) |
-| `selections_timestamp` | TEXT | Data/ora dell'evento (ISO 8601 UTC) |
-| `selections_market` | TEXT | Mercato scommessa (es. `1X2`, `Over 2.5`, `Goal/NoGoal`) |
-| `selections_outcome` | TEXT | Esito selezionato (es. `1`, `X`, `2`, `Over`) |
-| `selections_odds` | REAL | Quota della selezione |
-
----
-
-## Configurazione ambiente
-
-| Variabile | Obbligatoria | Descrizione |
-|---|---|---|
-| `OPENAI_API_KEY` | ✅ | GitHub Personal Access Token (`ghp_...`) |
-| `OPENAI_BASE_URL` | ✅ | `https://models.github.ai` |
-| `OPENAI_MODEL` | No | Modello LLM (default: `gpt-4o`). Consigliato: `gpt-4.1` |
-| `TELEGRAM_API_ID` | ✅ | Ottenuto da [my.telegram.org](https://my.telegram.org) |
-| `TELEGRAM_API_HASH` | ✅ | Ottenuto da [my.telegram.org](https://my.telegram.org) |
-| `TELEGRAM_SESSION` | ✅ | Stringa di sessione generata da `npm run setup-telegram` |
-
-Per rigenerare la sessione Telegram (se scaduta):
+Example:
 
 ```bash
-npm run setup-telegram
+npm run tips -- --channel=https://t.me/example_tipster --limit=200
 ```
 
----
+## What it does
 
-## Struttura dei file
+1. **Scrapes** the last N posts from a public Telegram channel via the Telegram client
+2. **Analyzes** posts in batches using an LLM (configured via `OPENAI_MODEL` / `OPENAI_BASE_URL`)
+3. **Saves** structured data to `data/tips-analysis.db`
+
+## Database schema (3-level hierarchy)
+
+The data is organized in three levels:
 
 ```
-src/tips-extractor/
-├── index.ts              # Entry point: legge config e avvia il grafo
-├── state.ts              # Definizione dello stato LangGraph + tipi
-├── graph.ts              # Composizione del grafo a 3 nodi
-└── nodes/
-    ├── history-scraper.ts  # Scraping Telegram con paginazione incrementale
-    ├── post-analyzer.ts    # Classificazione LLM in batch
-    └── db-writer.ts        # Persistenza su SQLite
-
-src/shared/
-└── channel-scraper.ts    # Funzione scrapeChannelPage() condivisa
-
-prompts/
-└── tips-extractor.md     # Prompt LLM per classificazione post
-
-config/
-└── analysis.yaml         # channel e post_limit
-
-data/
-└── tips-analysis.db      # Database SQLite (generato automaticamente)
+post_db  →  tips_db  →  selections_db
 ```
 
----
+### `post_db` — one row per Telegram message
 
-## Strategia di paginazione
+| Column | Type | Description |
+|--------|------|-------------|
+| `post_id` | INTEGER | Auto-incrementing primary key |
+| `telegram_msg_id` | INTEGER | Original Telegram message ID |
+| `post_affiliate_name` | TEXT | Channel name/title |
+| `post_publication_timestamp` | TEXT | ISO 8601 UTC publish time |
+| `post_type` | TEXT | `tips_new` / `tips_update` / `interaction` |
+| `is_tips` | INTEGER | 1 if post contains new betting tips |
+| `post_text` | TEXT | Full post text |
+| `post_image` | INTEGER | 1 if post has an attached image |
+| `tips_first_event_timestamp` | TEXT | Earliest event time across all tips in this post |
+| `tips_distance_timestamp` | TEXT | HH:MM between publication and first event |
+| `tips_event_count` | INTEGER | Number of distinct tips (giocate) in this post |
 
-Ogni run processa `post_limit` post alla volta, andando **indietro nel tempo**:
+### `tips_db` — one row per tip/giocata within a post
 
-| Run | Comportamento |
-|---|---|
-| Run 1 (DB vuoto) | Fetcha i 100 post più recenti |
-| Run 2 | Fetcha i 100 post prima del più vecchio già salvato |
-| Run 3 | Fetcha i 100 post ancora più indietro |
-| ... | Continua finché non ci sono più post |
+A single post may contain multiple independent tips (e.g. "BOMBER Q.12", "CARTELLINI Q.22", "MULTIGOL Q.8").
 
-Quando il canale è esaurito, il tool stampa `✅ No older posts found — channel history fully scraped.` e termina senza scrivere nulla.
+| Column | Type | Description |
+|--------|------|-------------|
+| `tip_id` | INTEGER | Auto-incrementing primary key |
+| `post_id` | INTEGER | FK → `post_db.post_id` |
+| `tip_position` | INTEGER | Order within the post (1, 2, 3…) |
+| `tip_topic` | TEXT | Named category/rubrica (e.g. "La Bomba", "I Cartellini") |
+| `tip_odds` | REAL | Total odds for this tip |
+| `tip_selections_count` | INTEGER | Number of legs/scommesse in this tip |
 
----
+### `selections_db` — one row per individual bet within a tip
 
-## Multi-canale
+| Column | Type | Description |
+|--------|------|-------------|
+| `selection_id` | INTEGER | Auto-incrementing primary key |
+| `tip_id` | INTEGER | FK → `tips_db.tip_id` |
+| `post_id` | INTEGER | FK → `post_db.post_id` (denormalized for convenience) |
+| `selections_id` | TEXT | Random 6-char ID (Italian alphabet) |
+| `selections_sport` | TEXT | `football` / `tennis` / `basket` / `other` |
+| `selections_competition` | TEXT | Full competition name (e.g. "Champions League") |
+| `selections_event` | TEXT | "TeamA - TeamB" or "PlayerA - PlayerB" |
+| `selections_timestamp` | TEXT | ISO 8601 UTC event time |
+| `selections_market` | TEXT | Standardized market (e.g. "1X2", "Over 2.5", "Cartellino Giallo") |
+| `selections_outcome` | TEXT | Selected outcome (e.g. "1", "Over", "Goal") |
+| `selections_odds` | REAL | Decimal odds for this selection |
 
-Il DB supporta più canali nella stessa istanza. Ogni canale è identificato dal suo titolo (`post_affiliate_name`). I `post_id` sono globalmente univoci (basati su `MAX(post_id)+1`), mentre i `selections_id` sono codici a 6 caratteri senza collisioni garantite da un set in memoria durante la scrittura.
+## Example queries
+
+### Posts with tips, with their tip count
+
+```sql
+SELECT post_id, post_publication_timestamp, tips_event_count, post_text
+FROM post_db
+WHERE is_tips = 1
+ORDER BY post_publication_timestamp DESC;
+```
+
+### All tips with their selection counts
+
+```sql
+SELECT t.tip_id, p.post_publication_timestamp, t.tip_topic, t.tip_odds, t.tip_selections_count
+FROM tips_db t
+JOIN post_db p ON p.post_id = t.post_id
+ORDER BY p.post_publication_timestamp DESC;
+```
+
+### Distribution of tips by number of legs (scommesse)
+
+```sql
+SELECT tip_selections_count, COUNT(*) as n
+FROM tips_db
+GROUP BY tip_selections_count
+ORDER BY tip_selections_count;
+```
+
+### All selections for a specific tip
+
+```sql
+SELECT s.*
+FROM selections_db s
+WHERE s.tip_id = <tip_id>;
+```
+
+## Post types
+
+| Type | Description |
+|------|-------------|
+| `tips_new` | New betting tip/giocata proposed |
+| `tips_update` | Update on a previous tip (result, recap) |
+| `interaction` | Community interaction (greetings, promos, polls) |
+
+## Configuration
+
+Uses the same `.env` variables as the main daemon:
+
+```env
+OPENAI_API_KEY=ghp_...          # GitHub Models token
+OPENAI_BASE_URL=https://models.inference.ai.azure.com
+OPENAI_MODEL=gpt-4.1
+```
