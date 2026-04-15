@@ -5,21 +5,31 @@ import { addBets, profileSlugFromPath, type TrackedBet } from "../../shared/bet-
 import {
   saveContentItems,
   markContentPublished,
+  updateContentGenerated,
   contentItemId,
 } from "../../shared/content-store.js";
+import { generateSingleFormat } from "./content-writer.js";
 import type { ContentStateType, ContentItem } from "../state.js";
 
 const MAX_CAPTION = 1024;
 
 /**
- * Publisher node — sends approved content items to Telegram.
- * If a content item has a publishTime (HH:MM), waits until that time before sending.
- * Items are sorted by publishTime and sent in chronological order.
+ * Publisher node — waits for each scheduled time slot, generates content
+ * just-in-time, then sends to Telegram.
+ *
+ * Content is NOT pre-generated. At each time slot:
+ * 1. Wait until the scheduled publish time
+ * 2. Generate content for that format (LLM call, bet extraction, image rendering)
+ * 3. Save generated content to DB
+ * 4. Publish to Telegram
+ *
+ * This ensures lineup-dependent formats (marcatori, cartellini) use the most
+ * current data, avoiding the risk of citing players who subsequently don't play.
  */
 export async function publisherNode(
   state: ContentStateType
 ): Promise<Partial<ContentStateType>> {
-  const { contentItems, publishChannel, reviewBeforePublish, profilePath, timezone } = state;
+  const { contentItems, publishChannel, reviewBeforePublish, profilePath, timezone, profile, fixtures } = state;
   const profileSlug = profileSlugFromPath(profilePath);
   const tz = timezone || "Europe/Rome";
 
@@ -52,12 +62,12 @@ export async function publisherNode(
     return a.publishTime.localeCompare(b.publishTime);
   });
 
-  // Persist to DB before publishing (survives restarts)
+  // Persist plan items to DB before publishing (survives restarts)
   const today = state.date || new Date().toISOString().split("T")[0];
   saveContentItems(sorted, profileSlug, today);
-  console.log(`💾 ${sorted.length} item(s) saved to content store`);
+  console.log(`💾 ${sorted.length} plan item(s) saved to content store`);
 
-  console.log(`\n📤 Publishing to: ${publishChannel}`);
+  console.log(`\n📤 Just-in-time publishing to: ${publishChannel}`);
   console.log(`📅 Schedule:\n`);
   for (const item of sorted) {
     console.log(`   ${item.publishTime ?? "now"} — ${item.formatName}`);
@@ -77,10 +87,44 @@ export async function publisherNode(
       }
 
       try {
+        // ── Just-in-time content generation ──
+        if (!item.text) {
+          const format = profile?.formats.find((f) => f.slug === item.formatSlug);
+          if (!format) {
+            console.log(`  ⚠️  Format "${item.formatSlug}" not found in profile. Skipping.`);
+            results.push(`⚠️ ${item.formatName}: format not found, skipped`);
+            continue;
+          }
+
+          console.log(`\n  🔄 Generating content just-in-time for: ${item.formatName}...`);
+          try {
+            const generated = await generateSingleFormat(
+              format,
+              profile!,
+              profilePath,
+              fixtures,
+            );
+            item.text = generated.text;
+            item.imageBase64 = generated.imageBase64;
+            item.bets = generated.bets;
+
+            // Update the DB record with generated content
+            updateContentGenerated(
+              contentItemId(today, profileSlug, item.formatSlug),
+              generated.text,
+              generated.imageBase64,
+              generated.bets ? JSON.stringify(generated.bets) : undefined,
+            );
+          } catch (genErr) {
+            console.error(`  ❌ Content generation failed for ${item.formatName}:`, genErr);
+            results.push(`❌ ${item.formatName}: generation failed — ${genErr}`);
+            continue;
+          }
+        }
+
         console.log(`  📨 Sending: ${item.formatName}...`);
 
         if (item.imageBase64) {
-          // Send image + caption (or image + follow-up if text is too long)
           const imageBuffer = Buffer.from(item.imageBase64, "base64");
           const file = new CustomFile("post.png", imageBuffer.length, "", imageBuffer);
 
@@ -91,7 +135,6 @@ export async function publisherNode(
             await client.sendMessage(peer, { message: item.text });
           }
         } else {
-          // Text-only post
           await client.sendMessage(peer, { message: item.text });
         }
 

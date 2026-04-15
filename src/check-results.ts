@@ -21,7 +21,7 @@ import type { ProfileConfig } from "./content-generator/state.js";
 type ProfileCfg = NonNullable<ProfileConfig["config"]>;
 
 const FOOTBALL_DATA_BASE = "https://api.football-data.org/v4";
-const FOOTBALL_DATA_COMPETITIONS = ["SA", "CL", "CI"]; // Serie A, Champions League, Coppa Italia
+const DEFAULT_COMPETITIONS = ["SA", "CL", "CI"];
 const UPDATE_PROMPT_PATH = path.resolve("prompts", "results-update.md");
 
 interface MatchResult {
@@ -62,7 +62,9 @@ async function main() {
   console.log();
 
   // Fetch match results
-  const results = await fetchResults(pending, cfg);
+  const competitions = (cfg.competitions?.footballData ?? []).map((c: { code: string }) => c.code);
+  const fdCompetitions = competitions.length > 0 ? competitions : DEFAULT_COMPETITIONS;
+  const results = await fetchResults(pending, cfg, fdCompetitions);
 
   // Evaluate each bet
   const resolved: TrackedBet[] = [];
@@ -140,7 +142,7 @@ async function main() {
 
 // ── Result fetching ──────────────────────────────────────────
 
-async function fetchResults(bets: TrackedBet[], config: ProfileCfg): Promise<MatchResult[]> {
+async function fetchResults(bets: TrackedBet[], config: ProfileCfg, competitions: string[]): Promise<MatchResult[]> {
   const apiKey = process.env.FOOTBALL_DATA_API_KEY;
 
   if (!apiKey) {
@@ -152,7 +154,7 @@ async function fetchResults(bets: TrackedBet[], config: ProfileCfg): Promise<Mat
   const allResults: MatchResult[] = [];
 
   for (const date of dates) {
-    for (const competition of FOOTBALL_DATA_COMPETITIONS) {
+    for (const competition of competitions) {
       try {
         const url = new URL(`${FOOTBALL_DATA_BASE}/competitions/${competition}/matches`);
         url.searchParams.set("dateFrom", date);

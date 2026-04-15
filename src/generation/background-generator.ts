@@ -1,23 +1,40 @@
 import OpenAI from "openai";
 import type { BrandingConfig } from "../content-generator/state.js";
 
-const openai = new OpenAI();
+/**
+ * Separate OpenAI client for image generation via OpenAI's own API.
+ * GitHub Models doesn't support DALL-E, so we use a dedicated OpenAI API key
+ * pointed directly at api.openai.com.
+ */
+function getImageClient(): OpenAI {
+  const apiKey = process.env.OPENAI_IMAGE_API_KEY;
+  if (!apiKey) {
+    throw new Error(
+      "OPENAI_IMAGE_API_KEY not set. Add your OpenAI API key for image generation in .env",
+    );
+  }
+  return new OpenAI({
+    apiKey,
+    baseURL: "https://api.openai.com/v1",
+  });
+}
 
 /**
- * Generates a unique background image using DALL-E / gpt-image-1,
+ * Generates a unique background image using DALL-E 3 via OpenAI's API,
  * themed to the profile's branding and the specific editorial format.
  *
- * Returns a base64-encoded PNG (1080×1920).
+ * Returns a base64-encoded PNG (1024×1792).
  */
 export async function generateBackground(
   branding: BrandingConfig,
   formatName: string,
 ): Promise<string> {
+  const client = getImageClient();
   const prompt = buildBackgroundPrompt(branding, formatName);
 
-  console.log(`  🎨 Generating AI background for "${formatName}"...`);
+  console.log(`  🎨 Generating AI background for "${formatName}" (DALL-E 3)...`);
 
-  const response = await openai.images.generate({
+  const response = await client.images.generate({
     model: "dall-e-3",
     prompt,
     n: 1,

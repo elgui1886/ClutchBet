@@ -17,12 +17,12 @@ A one-off analysis tool that:
 3. **Produces** a Markdown document with tone of voice, editorial plan, recurring patterns, publishing frequency, and content style
 
 ### Content Generator Workflow (`npm run content`)
-An editorial content pipeline that turns a **profile** (editorial line definition) into real, publishable Telegram posts:
-1. **Fetches** real sports data (fixtures, odds) from external APIs (The Odds API for football Serie A + tennis Grand Slams, football-data.org as fallback for fixtures only)
-2. **Schedules** which editorial formats to generate today based on the profile's editorial plan, the day of the week, and available fixtures. Supports multiple rubric types: schedine, marcatori, cartellini, combo, tennis, lavagna tattica, pillola, recap, promo affiliata
-3. **Generates** post content via LLM, strictly following the profile's tone of voice, format templates, and real sports data. For affiliate formats, injects affiliate link/CTA into the prompt
-4. **Reviews** generated content with human-in-the-loop approval before publishing
-5. **Publishes** approved posts to a configured Telegram channel
+An editorial content pipeline that turns a **profile** (editorial line definition) into real, publishable Telegram posts, using a **just-in-time generation** strategy:
+1. **Fetches** real sports data (fixtures, odds) from external APIs. Competitions are configured per profile (e.g. Serie A + Champions League, or Premier League + FA Cup). Uses The Odds API as primary source, football-data.org as fallback for fixtures only
+2. **Schedules** which editorial formats to generate today based on the profile's editorial plan, the day of the week, and available fixtures. Each profile defines its own rubrics (formats) — there is no fixed set of rubrics; they are fully configurable per profile
+3. **Plans** the publish schedule — assigns a publish time to each format without generating content yet. Lineup-dependent formats (marcatori, cartellini) are scheduled close to kickoff (configurable `publish_before_match` in minutes)
+4. **Generates + publishes just-in-time** — at each scheduled time slot, the system generates the content via LLM (using the most current data), then immediately publishes to Telegram. This prevents citing players who may not play due to late injuries or tactical changes
+5. **Reviews** generated content with human-in-the-loop approval before publishing (optional, disabled by default)
 
 ### Bet Results Checker (`npm run check-results`)
 A command that verifies the outcome of published bets:
@@ -79,11 +79,11 @@ A one-off utility that converts a human-written Markdown profile (e.g. `output/p
 | **Image Rendering** | Puppeteer (headless Chrome) | Renders HTML/CSS bet-slip template to PNG screenshot with AI-generated backgrounds |
 | **AI Backgrounds** | OpenAI gpt-image-1 | Generates unique branded background images per post via DALL-E |
 | **Publishing** | Telegram channel | Generated post sent directly to a configured Telegram channel |
-| **Sports Data API (fixtures + odds)** | The Odds API (the-odds-api.com) | Primary source for upcoming fixtures and odds. Football (Serie A): h2h 1X2, totals Over/Under 2.5. Tennis (Grand Slams ATP/WTA): h2h. Free tier: 500 req/month |
+| **Sports Data API (fixtures + odds)** | The Odds API (the-odds-api.com) | Primary source for upcoming fixtures and odds. Competitions are configurable per profile (e.g. Serie A, Premier League, La Liga). Free tier: 500 req/month |
 | **Sports Data API (fallback + results)** | football-data.org | Fallback for football fixtures (no odds) + match results for bet verification. Free tier |
 | **Bet Storage** | better-sqlite3 (SQLite) | Local database for bet tracking, result verification, performance analytics, and content publish queue |
 | **Trigger** | CLI (`tsx`) | Manual execution via `npm start` |
-| **Scheduling** | node-cron + dynamic publish times | Daily automated execution via pm2 daemon. Bet formats publish 1h before first kickoff |
+| **Scheduling** | node-cron + dynamic publish times | Daily automated execution via pm2 daemon. Just-in-time generation: content is planned in the morning but generated right before each publish time. Lineup-dependent formats are generated close to kickoff (configurable `publish_before_match` per format) |
 | **Configuration** | YAML + .env | Channels, topics, profiles, API keys |
 
 ## LangGraph Workflows
@@ -115,9 +115,11 @@ A one-off utility that converts a human-written Markdown profile (e.g. `output/p
                 ↓
           (formats selected)
                 ↓
-         [data_fetcher] → [content_writer] → [reviewer] → (none approved?) → [END]
-                                                              ↓
-                                                        [publisher] → [END]
+         [data_fetcher] → [content_writer (PLANNER)] → [reviewer] → (none approved?) → [END]
+                                                                          ↓
+                                                                    [publisher] → [END]
+                                                                    (for each time slot:
+                                                                     wait → generate JIT → publish)
 ```
 
 Each node is a TypeScript async function that:
@@ -201,7 +203,7 @@ This approach keeps each LLM call within context window limits while still produ
 ### Content Generator Workflow
 - **Trigger**: `npm run content` (CLI)
 - **Frequency**: Once per day (morning)
-- **Input**: Parsed YAML profile + real sports data from The Odds API (+ football-data.org fallback)
+- **Input**: Parsed YAML profile + real sports data from The Odds API (+ football-data.org fallback). Competitions are configurable per profile
 - **Output**: Generated posts saved to `output/content/`, published to Telegram at scheduled times
 - **Config**: Profile YAML contiene tutto (publishChannel, league, tone, branding, ecc.)
 - **Human-in-the-loop**: Each generated post must be approved before publishing

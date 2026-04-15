@@ -1,10 +1,10 @@
-import type { ContentStateType, Fixture, FixtureOdds } from "../state.js";
+import type { ContentStateType, Fixture, FixtureOdds, SquadPlayer } from "../state.js";
 
 // ── The Odds API (primary: fixtures + odds) ──────────────────
 const THE_ODDS_API_BASE = "https://api.the-odds-api.com/v4";
 
-// Football competitions to fetch (all Italian + European relevant)
-const FOOTBALL_SPORT_KEYS: Array<{ key: string; label: string }> = [
+// Football competitions — defaults (used when profile doesn't specify)
+const DEFAULT_ODDS_API_COMPETITIONS: Array<{ key: string; label: string }> = [
   { key: "soccer_italy_serie_a", label: "Serie A" },
   { key: "soccer_uefa_champs_league", label: "Champions League" },
   { key: "soccer_italy_coppa_italia", label: "Coppa Italia" },
@@ -26,8 +26,8 @@ const TENNIS_SPORT_KEYS = [
 // ── football-data.org (fallback: fixtures only) ──────────────
 const FOOTBALL_DATA_BASE = "https://api.football-data.org/v4";
 
-// football-data.org competition codes (fallback + results)
-const FOOTBALL_DATA_COMPETITIONS: Array<{ code: string; label: string }> = [
+// football-data.org competition codes — defaults (used when profile doesn't specify)
+const DEFAULT_FD_COMPETITIONS: Array<{ code: string; label: string }> = [
   { code: "SA", label: "Serie A" },
   { code: "CL", label: "Champions League" },
   { code: "CI", label: "Coppa Italia" },
@@ -148,14 +148,17 @@ function extractOddsFromEvent(
 
 // ── Data sources ─────────────────────────────────────────────
 
-async function fetchFromOddsApi(date: string): Promise<Fixture[] | null> {
+async function fetchFromOddsApi(
+  date: string,
+  sportKeys: Array<{ key: string; label: string }> = DEFAULT_ODDS_API_COMPETITIONS,
+): Promise<Fixture[] | null> {
   const apiKey = process.env.THE_ODDS_API_KEY;
   if (!apiKey) return null;
 
   const allFixtures: Fixture[] = [];
   let anySuccess = false;
 
-  for (const { key: sportKey, label } of FOOTBALL_SPORT_KEYS) {
+  for (const { key: sportKey, label } of sportKeys) {
     try {
       console.log(`⚽ Fetching fixtures + odds from The Odds API (${label})...`);
 
@@ -217,7 +220,10 @@ async function fetchFromOddsApi(date: string): Promise<Fixture[] | null> {
   return allFixtures.sort((a, b) => a.time.localeCompare(b.time));
 }
 
-async function fetchFromFootballData(date: string): Promise<Fixture[] | null> {
+async function fetchFromFootballData(
+  date: string,
+  competitions: Array<{ code: string; label: string }> = DEFAULT_FD_COMPETITIONS,
+): Promise<Fixture[] | null> {
   const apiKey = process.env.FOOTBALL_DATA_API_KEY;
   if (!apiKey) return null;
 
@@ -226,7 +232,7 @@ async function fetchFromFootballData(date: string): Promise<Fixture[] | null> {
   const allFixtures: Fixture[] = [];
   let anySuccess = false;
 
-  for (const { code, label } of FOOTBALL_DATA_COMPETITIONS) {
+  for (const { code, label } of competitions) {
     try {
       const url = new URL(`${FOOTBALL_DATA_BASE}/competitions/${code}/matches`);
       url.searchParams.set("dateFrom", date);
@@ -368,6 +374,183 @@ async function fetchTennisFromOddsApi(date: string): Promise<Fixture[]> {
   return allFixtures.sort((a, b) => a.time.localeCompare(b.time));
 }
 
+// ── Squad data from football-data.org ────────────────────────
+
+interface FDSquadPlayer {
+  name: string;
+  position: string | null;
+}
+
+interface FDTeam {
+  name: string;
+  shortName: string;
+  squad: FDSquadPlayer[];
+}
+
+interface FDTeamsResponse {
+  teams: FDTeam[];
+  errorCode?: number;
+}
+
+/** In-memory cache for squad data (one fetch per competition per day is enough) */
+const squadCache = new Map<string, Map<string, SquadPlayer[]>>();
+
+/**
+ * Fetches all squads for a competition from football-data.org and caches them.
+ * Returns a map of team name -> players.
+ */
+async function fetchSquadsForCompetition(
+  competitionCode: string,
+): Promise<Map<string, SquadPlayer[]>> {
+  const cached = squadCache.get(competitionCode);
+  if (cached) return cached;
+
+  const apiKey = process.env.FOOTBALL_DATA_API_KEY;
+  if (!apiKey) return new Map();
+
+  try {
+    const url = new URL(
+      `${FOOTBALL_DATA_BASE}/competitions/${competitionCode}/teams`,
+    );
+    url.searchParams.set("season", "2025");
+
+    const response = await fetch(url.toString(), {
+      headers: { "X-Auth-Token": apiKey },
+    });
+
+    if (!response.ok) {
+      console.log(
+        `   ℹ️  Squad data for ${competitionCode}: HTTP ${response.status} (skipped)`,
+      );
+      return new Map();
+    }
+
+    const data = (await response.json()) as FDTeamsResponse;
+    if (data.errorCode) return new Map();
+
+    const result = new Map<string, SquadPlayer[]>();
+    for (const team of data.teams) {
+      const players: SquadPlayer[] = (team.squad ?? [])
+        .filter((p) => p.position != null)
+        .map((p) => ({ name: p.name, position: p.position! }));
+
+      // Index by full name and short name for fuzzy matching
+      result.set(team.name.toLowerCase(), players);
+      result.set(team.shortName.toLowerCase(), players);
+    }
+
+    squadCache.set(competitionCode, result);
+    console.log(
+      `   📋 Loaded squads for ${data.teams.length} teams (${competitionCode})`,
+    );
+    return result;
+  } catch (err) {
+    console.log(`   ⚠️  Squad fetch failed for ${competitionCode}: ${err}`);
+    return new Map();
+  }
+}
+
+/**
+ * Find squad for a team name by fuzzy-matching against cached squad data.
+ */
+function findSquad(
+  teamName: string,
+  squadsMap: Map<string, SquadPlayer[]>,
+): SquadPlayer[] | undefined {
+  const lower = teamName.toLowerCase();
+
+  // Exact match
+  if (squadsMap.has(lower)) return squadsMap.get(lower);
+
+  // Partial match: check if any key is contained in the team name or vice versa
+  for (const [key, squad] of squadsMap) {
+    if (lower.includes(key) || key.includes(lower)) return squad;
+  }
+
+  return undefined;
+}
+
+/**
+ * Enriches fixtures with current squad data from football-data.org.
+ */
+async function enrichFixturesWithSquads(
+  fixtures: Fixture[],
+  fdCompetitions: Array<{ code: string; label: string }> = DEFAULT_FD_COMPETITIONS,
+): Promise<void> {
+  const footballFixtures = fixtures.filter((f) => f.sport !== "tennis");
+  if (footballFixtures.length === 0) return;
+
+  console.log(`\n📋 Fetching current squad data for today's teams...`);
+
+  // Determine which competitions we need squads for
+  const competitionCodes = new Set<string>();
+  for (const fixture of footballFixtures) {
+    for (const { code, label } of fdCompetitions) {
+      if (fixture.league.toLowerCase().includes(label.toLowerCase())) {
+        competitionCodes.add(code);
+      }
+    }
+  }
+
+  // Fetch squads for all needed competitions
+  const allSquads = new Map<string, SquadPlayer[]>();
+  for (const code of competitionCodes) {
+    const squads = await fetchSquadsForCompetition(code);
+    for (const [key, val] of squads) {
+      allSquads.set(key, val);
+    }
+  }
+
+  if (allSquads.size === 0) {
+    console.log(`   ⚠️  No squad data available. Player names won't be injected.`);
+    return;
+  }
+
+  // Attach squads to fixtures
+  let enriched = 0;
+  for (const fixture of footballFixtures) {
+    const homeSquad = findSquad(fixture.homeTeam, allSquads);
+    const awaySquad = findSquad(fixture.awayTeam, allSquads);
+    if (homeSquad) { fixture.homeSquad = homeSquad; enriched++; }
+    if (awaySquad) { fixture.awaySquad = awaySquad; enriched++; }
+  }
+
+  console.log(
+    `   ✅ Enriched ${enriched} team(s) with current squad data`,
+  );
+}
+
+/**
+ * Standalone fixture-fetch function for use outside the graph (e.g. resume mode).
+ * Fetches football + tennis fixtures for the given date and enriches with squad data.
+ */
+export async function fetchFixturesForDate(
+  date: string,
+  oddsApiComps?: Array<{ key: string; label: string }>,
+  fdComps?: Array<{ code: string; label: string }>,
+): Promise<Fixture[]> {
+  let allFixtures: Fixture[] = [];
+
+  // Football
+  let fixtures: Fixture[] | null = null;
+  try { fixtures = await fetchFromOddsApi(date, oddsApiComps); } catch {}
+  if (!fixtures) {
+    try { fixtures = await fetchFromFootballData(date, fdComps); } catch {}
+  }
+  if (fixtures) allFixtures.push(...fixtures);
+
+  // Tennis
+  try {
+    const tennis = await fetchTennisFromOddsApi(date);
+    allFixtures.push(...tennis);
+  } catch {}
+
+  // Enrich with squad data
+  await enrichFixturesWithSquads(allFixtures, fdComps);
+
+  return allFixtures;
+}
+
 /**
  * Data-fetcher node — fetches today's fixtures from The Odds API (with odds)
  * or football-data.org (fixtures only, as fallback).
@@ -379,7 +562,11 @@ async function fetchTennisFromOddsApi(date: string): Promise<Fixture[]> {
 export async function dataFetcherNode(
   state: ContentStateType
 ): Promise<Partial<ContentStateType>> {
-  const { date, scheduledFormats, profile } = state;
+  const { date, scheduledFormats, profile, oddsApiCompetitions, footballDataCompetitions } = state;
+
+  // Use profile competitions or fall back to defaults
+  const oddsComps = oddsApiCompetitions.length > 0 ? oddsApiCompetitions : DEFAULT_ODDS_API_COMPETITIONS;
+  const fdComps = footballDataCompetitions.length > 0 ? footballDataCompetitions : DEFAULT_FD_COMPETITIONS;
 
   const formatsRequiringData = profile?.formats.filter(
     (f) =>
@@ -412,7 +599,7 @@ export async function dataFetcherNode(
   if (needsFootball) {
     let fixtures: Fixture[] | null = null;
     try {
-      fixtures = await fetchFromOddsApi(date);
+      fixtures = await fetchFromOddsApi(date, oddsComps);
     } catch (err) {
       console.error("❌ The Odds API fetch failed:", err);
     }
@@ -420,7 +607,7 @@ export async function dataFetcherNode(
     // Fallback to football-data.org (fixtures only, no odds)
     if (!fixtures) {
       try {
-        fixtures = await fetchFromFootballData(date);
+        fixtures = await fetchFromFootballData(date, fdComps);
         if (fixtures) {
           console.log("⚠️  Using football-data.org — fixtures only, no odds available.");
         }
@@ -487,6 +674,9 @@ export async function dataFetcherNode(
       return !format?.requires_data.includes("tennis_fixtures");
     });
   }
+
+  // ── Enrich football fixtures with current squad data ──
+  await enrichFixturesWithSquads(allFixtures, fdComps);
 
   return { fixtures: allFixtures, scheduledFormats: updatedFormats };
 }

@@ -115,6 +115,7 @@ formats:
     slug: "marcatori"
     frequency: "daily_match_day"
     publish_time: "14:30"
+    publish_before_match: 60
     type: "regular"
     generate_image: true
     description: "Schedina marcatori: 2-4 selezioni su chi segna. Pronostici su goleador in forma, attaccanti in striscia positiva. Tono istintivo e carico."
@@ -155,6 +156,7 @@ formats:
     slug: "cartellini"
     frequency: "daily_match_day"
     publish_time: "15:00"
+    publish_before_match: 45
     type: "regular"
     generate_image: true
     description: "Schedina cartellini: 2-4 selezioni su ammonizioni/espulsioni. Giocatori ruvidi, arbitri severi, partite calde. Tono istintivo."
@@ -480,6 +482,23 @@ config:
     id: 135          # Serie A
     season: 2025
     country: "Italy"
+  competitions:
+    oddsApi:
+      - key: "soccer_italy_serie_a"
+        label: "Serie A"
+      - key: "soccer_uefa_champs_league"
+        label: "Champions League"
+      - key: "soccer_italy_coppa_italia"
+        label: "Coppa Italia"
+      - key: "soccer_uefa_europa_league"
+        label: "Europa League"
+    footballData:
+      - code: "SA"
+        label: "Serie A"
+      - code: "CL"
+        label: "Champions League"
+      - code: "CI"
+        label: "Coppa Italia"
   affiliate:
     link: "https://www.danzbet.com"
     name: "DanzBet"

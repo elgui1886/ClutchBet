@@ -141,6 +141,23 @@ export function markContentPublished(id: string): void {
 }
 
 /**
+ * Update a plan item with generated content (text, image, bets).
+ * Called by the publisher after just-in-time content generation.
+ */
+export function updateContentGenerated(
+  id: string,
+  text: string,
+  imageBase64?: string,
+  betsJson?: string,
+): void {
+  const db = getDb();
+  db.prepare(
+    "UPDATE content_queue SET text = ?, image_base64 = ?, bets_json = ? WHERE id = ?"
+  ).run(text, imageBase64 ?? null, betsJson ?? null, id);
+  db.close();
+}
+
+/**
  * Expire content from previous days so it won't be retried.
  * Returns the number of expired items.
  */

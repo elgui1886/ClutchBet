@@ -12,6 +12,12 @@ export interface FixtureOdds {
   bookmaker?: string; // Source bookmaker name
 }
 
+/** A player in a team squad */
+export interface SquadPlayer {
+  name: string;
+  position: string;   // e.g. "Goalkeeper", "Defence", "Midfield", "Offence", "Centre-Back", etc.
+}
+
 /** A football fixture from the sports API */
 export interface Fixture {
   homeTeam: string;
@@ -23,6 +29,8 @@ export interface Fixture {
   referee?: string;
   odds?: FixtureOdds;
   sport?: string;     // "football" | "tennis" — defaults to "football"
+  homeSquad?: SquadPlayer[];
+  awaySquad?: SquadPlayer[];
 }
 
 /** Branding configuration for image generation */
@@ -45,6 +53,7 @@ export interface FormatConfig {
   generate_image: boolean;  // Whether this format should include a bet-slip image
   template: string;
   publish_time?: string;  // HH:MM — preferred publish time (e.g. "14:00")
+  publish_before_match?: number; // Minutes before earliest kickoff to publish (for lineup-dependent formats)
   example_posts?: string[];  // Concrete example posts to guide LLM style
 }
 
@@ -94,6 +103,11 @@ export interface ProfileConfig {
       id?: number;
       season?: number;
       country?: string;
+    };
+    /** Competitions this profile covers (drives data fetching & results) */
+    competitions?: {
+      oddsApi: Array<{ key: string; label: string }>;
+      footballData: Array<{ code: string; label: string }>;
     };
     affiliate?: {
       link: string;
@@ -149,6 +163,16 @@ export const ContentState = Annotation.Root({
   leagueSeason: Annotation<number>({
     reducer: (_prev, next) => next,
     default: () => 2025,
+  }),
+  /** Competitions for The Odds API */
+  oddsApiCompetitions: Annotation<Array<{ key: string; label: string }>>({
+    reducer: (_prev, next) => next,
+    default: () => [],
+  }),
+  /** Competitions for football-data.org */
+  footballDataCompetitions: Annotation<Array<{ code: string; label: string }>>({
+    reducer: (_prev, next) => next,
+    default: () => [],
   }),
   /** Today's date (ISO) */
   date: Annotation<string>({

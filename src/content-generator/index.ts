@@ -9,6 +9,7 @@ import {
   expireOldContent,
 } from "../shared/content-store.js";
 import { publisherNode } from "./nodes/publisher.js";
+import { fetchFixturesForDate } from "./nodes/data-fetcher.js";
 import type { ProfileConfig, ContentItem, ContentStateType } from "./state.js";
 
 function loadProfile(profilePath: string): ProfileConfig {
@@ -53,7 +54,23 @@ export async function main() {
       return;
     }
 
-    console.log(`📤 Found ${pending.length} unpublished item(s) for today. Resuming...\n`);
+    const needsGeneration = pending.some((p) => !p.text);
+    if (needsGeneration) {
+      console.log(`📤 Found ${pending.length} item(s), some need just-in-time generation. Resuming...\n`);
+    } else {
+      console.log(`📤 Found ${pending.length} unpublished item(s) for today. Resuming...\n`);
+    }
+
+    // Re-fetch fixture data if any plan items still need content generation
+    let fixtures: ContentStateType["fixtures"] = [];
+    if (needsGeneration) {
+      console.log("⚽ Re-fetching fixture data for just-in-time generation...\n");
+      fixtures = await fetchFixturesForDate(
+        today,
+        cfg.competitions?.oddsApi,
+        cfg.competitions?.footballData,
+      );
+    }
 
     await publisherNode({
       contentItems: pending,
@@ -64,8 +81,10 @@ export async function main() {
       profile,
       leagueId: cfg.league?.id ?? 135,
       leagueSeason: cfg.league?.season ?? 2025,
+      oddsApiCompetitions: cfg.competitions?.oddsApi ?? [],
+      footballDataCompetitions: cfg.competitions?.footballData ?? [],
       date: today,
-      fixtures: [],
+      fixtures,
       scheduledFormats: [],
       publishResult: "",
     } as ContentStateType);
@@ -97,6 +116,8 @@ export async function main() {
     publishChannel: cfg.publishChannel ?? "",
     leagueId: cfg.league?.id ?? 135,
     leagueSeason: cfg.league?.season ?? 2025,
+    oddsApiCompetitions: cfg.competitions?.oddsApi ?? [],
+    footballDataCompetitions: cfg.competitions?.footballData ?? [],
     date: new Date().toISOString().split("T")[0],
     reviewBeforePublish: cfg.reviewBeforePublish ?? false,
     timezone: cfg.timezone ?? "Europe/Rome",

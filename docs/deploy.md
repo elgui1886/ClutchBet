@@ -38,13 +38,14 @@ Ogni processo pm2:
 ┌─────────────────────────────────────────────────────────────┐
 │  CRON: ogni giorno alle 08:00 (configurabile)               │
 │                                                             │
-│  1. CONTENT GENERATION                                      │
-│     Scheduler → Data Fetcher → Content Writer → Publisher   │
-│     I post vengono salvati nel DB (content_queue) PRIMA     │
-│     della pubblicazione → sopravvivono a crash/restart      │
-│     Le scommesse vengono salvate nel DB SQLite              │
-│     Orari di pubblicazione dinamici per formati con bet:    │
-│     1h prima del primo kickoff del giorno                   │
+│  1. CONTENT PLANNING + JUST-IN-TIME PUBLISHING              │
+│     Scheduler → Data Fetcher → Content Planner → Publisher  │
+│     Il planner assegna gli orari, il publisher genera il     │
+│     contenuto just-in-time al momento di pubblicare.         │
+│     I plan item vengono salvati nel DB (content_queue)       │
+│     PRIMA della pubblicazione → sopravvivono a crash/restart │
+│     Formati sensibili (marcatori, cartellini) vengono        │
+│     generati vicino al kickoff per dati aggiornati           │
 │                                                             │
 │  2. RESULTS WATCHER (avviato 5 min dopo)                    │
 │     Polling ogni ora su football-data.org                   │
@@ -57,21 +58,19 @@ Ogni processo pm2:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Giornata tipo
+### Giornata tipo (esempio con profilo "Il Capitano")
+
+> **Nota**: le rubriche, gli orari e le competizioni dipendono dal profilo. Ogni profilo può avere formati completamente diversi.
 
 | Orario | Azione |
 |---|---|
-| 08:00 | Cron scatta → content generation |
-| 08:02 | Scheduler decide quali rubriche generare oggi |
-| 08:03 | Data Fetcher scarica partite + quote da The Odds API (calcio + tennis; fallback: football-data.org) |
-| 08:04 | Content Writer genera i post con LLM + immagini AI |
-| 08:05 | Publisher pubblica i formati senza scommesse (Pillola, Promo) o attende gli orari dinamici |
-| 11:00 | Pubblica "Promo del Giorno" (orario fisso) |
-| 12:00 | Pubblica "Tennis Pick" (orario fisso) |
-| ~14:00 | Pubblica "Schedina del Giorno" (orario dinamico: 1h prima del primo kickoff) |
-| ~14:10 | Pubblica "Marcatori" (orario dinamico: +10 min) |
-| ~14:20 | Pubblica "Cartellini" (orario dinamico: +20 min) |
-| ~14:30 | Pubblica "La Combo" (orario dinamico: +30 min) |
+| 08:00 | Cron scatta → planning + data fetch |
+| 08:02 | Scheduler decide quali rubriche generare oggi (in base al profilo) |
+| 08:03 | Data Fetcher scarica partite + quote dalle competizioni configurate nel profilo (fallback: football-data.org) |
+| 08:04 | Content Planner assegna gli orari di pubblicazione (nessuna generazione LLM) |
+| 08:05 | Publisher salva il piano nel DB e attende il primo time slot |
+| 10:00–19:45 | Just-in-time: per ogni rubrica schedulata, genera il contenuto e pubblica all'orario previsto |
+| | Formati con `publish_before_match`: generati N minuti prima del kickoff (dati aggiornati) |
 | 08:10 | Results Watcher avviato — schedula i check per ogni partita (football-data.org) |
 | ~22:15 | Partite finite → valuta scommesse → genera e pubblica recap (solo vincite e quasi-vincite) |
 | 08:00 domani | Ripete tutto da capo |

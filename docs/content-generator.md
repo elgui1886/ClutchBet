@@ -61,9 +61,22 @@ config:
     id: 135          # Serie A
     season: 2025
     country: "Italy"
+  competitions:                                    # competizioni da cui pescare dati
+    oddsApi:                                       # The Odds API sport keys
+      - key: "soccer_italy_serie_a"
+        label: "Serie A"
+      - key: "soccer_uefa_champs_league"
+        label: "Champions League"
+    footballData:                                  # football-data.org competition codes
+      - code: "SA"
+        label: "Serie A"
+      - code: "CL"
+        label: "Champions League"
 ```
 
-Ogni profilo è autosufficiente: contiene tono di voce, rubriche, scheduling, E la configurazione di pubblicazione. Non serve un file di configurazione separato.
+Ogni profilo è autosufficiente: contiene tono di voce, rubriche, scheduling, competizioni, E la configurazione di pubblicazione. Non serve un file di configurazione separato.
+
+> **Multi-profilo**: ogni profilo può avere rubriche, competizioni e stili completamente diversi. "Il Capitano" con Serie A e schedine è solo un esempio; un secondo profilo potrebbe coprire la Premier League con rubriche totalmente diverse.
 
 ## Flusso giornaliero
 
@@ -76,13 +89,22 @@ npm run content -- --profile=config/profiles/il-capitano.yaml
 Il workflow esegue nell'ordine:
 
 1. **Scheduler** — Determina quali rubriche generare in base al giorno della settimana e alle regole del profilo
-2. **Data Fetcher** — Recupera le partite del giorno e le quote reali da The Odds API (calcio Serie A + tennis Grand Slams ATP/WTA), con fallback su football-data.org per solo fixtures calcio. Filtra le partite già iniziate/concluse. Se non ci sono partite, rimuove le rubriche che dipendono da dati live
-3. **Content Writer** — Genera un post per ogni rubrica usando l'LLM, rispettando tono, template e quote reali. Estrae le scommesse strutturate dal testo generato (per il tracking). Per i formati con `generate_image: true`, genera un'immagine bet-slip con sfondo AI brandizzato (gpt-image-1 + Puppeteer overlay). Per i formati affiliati (es. `promo-del-giorno`), inietta link affiliato e CTA nel prompt
-4. **Reviewer** — Mostra ogni post in console. L'operatore può:
-   - `s` = approva
-   - `n` = rifiuta
-   - `e` = modifica (incolla testo corretto)
-5. **Publisher** — Salva i post nella **coda persistente** (`content_queue` in SQLite), poi li pubblica su Telegram **rispettando gli orari di pubblicazione**. Per i formati con scommesse, l'orario è **dinamico**: 1h prima del primo kickoff del giorno (+ offset di 10 min per formato). Per i formati senza scommesse, usa l'orario fisso definito nel profilo. Se l'orario non è ancora arrivato, il processo attende. Ogni post pubblicato viene marcato nella coda, così in caso di crash/restart i post rimanenti vengono ripubblicati automaticamente. Le scommesse contenute nei post vengono salvate nel database SQLite (`data/clutchbet.db`) per il tracking
+2. **Data Fetcher** — Recupera le partite del giorno e le quote reali dalle competizioni configurate nel profilo (`config.competitions`). Usa The Odds API come fonte primaria, con fallback su football-data.org per solo fixtures calcio. Filtra le partite già iniziate/concluse. Se non ci sono partite, rimuove le rubriche che dipendono da dati live. Arricchisce le fixture con le rose attuali da football-data.org
+3. **Content Writer (PLANNER)** — NON genera contenuto. Pianifica solo gli orari di pubblicazione per ogni rubrica:
+   - Formati con `publish_before_match` (es. marcatori 60 min, cartellini 45 min): pubblicati N minuti prima del primo kickoff
+   - Formati con scommesse senza `publish_before_match`: distribuiti dalle 12:00 a 1h prima del primo kickoff
+   - Formati senza scommesse: orario fisso definito nel profilo YAML
+4. **Reviewer** — (Opzionale, disabilitato di default) Mostra ogni post in console per approvazione
+5. **Publisher (Just-in-Time)** — Per ogni time slot schedulato:
+   1. Attende l'orario previsto
+   2. **Genera il contenuto** via LLM con i dati più aggiornati (quote, partite ancora attive, formazioni)
+   3. Estrae le scommesse strutturate dal testo
+   4. Genera l'immagine bet-slip (se configurato)
+   5. Salva nel DB SQLite
+   6. Pubblica su Telegram
+   7. Salva le scommesse nel tracker per la verifica risultati
+
+   Questo approccio **just-in-time** garantisce che i formati sensibili alle formazioni (marcatori, cartellini) utilizzino dati aggiornati, evitando di citare giocatori che potrebbero non giocare per infortunio o scelta tecnica
 
 ### Verificare i risultati delle scommesse
 
@@ -128,10 +150,16 @@ Alternativa a `check-results` per un uso hands-off:
            │
            ▼
 ┌─────────────────────────────────────────────────────────────┐
-│  QUOTIDIANO                                                 │
+│  QUOTIDIANO (Just-in-Time)                                  │
 │                                                             │
-│  4. npm run content --profile=X    → genera + pubblica post │
-│     (mattina/pomeriggio, prima degli orari di pubblicazione)│
+│  4. npm run content --profile=X                              │
+│     Mattina: pianifica timing → durante il giorno: genera    │
+│     e pubblica ogni post al momento giusto                   │
+│                                                             │
+│     • Le rubriche e i loro orari sono definiti nel profilo  │
+│     • Formati con publish_before_match: generati N min      │
+│       prima del kickoff (per dati aggiornati)               │
+│     • Altri formati: orario fisso dal profilo                │
 │                                                             │
 │  5a. npm run check-results --profile=X  → verifica + recap  │
 │      (sera, dopo le partite — one-shot)                     │
@@ -169,16 +197,17 @@ npm run content -- --profile=config/profiles/il-capitano.yaml --resume
 
 Il flag `--resume`:
 - Legge dalla coda i contenuti `pending` per il profilo e la data corrente
+- Se ci sono plan item senza contenuto generato: ri-fetcha i dati delle partite e genera just-in-time
 - Pubblica solo quelli non ancora inviati, rispettando gli orari
 - Se tutto è già pubblicato, termina immediatamente
-- **Non rigenera** i contenuti — usa quelli già salvati
 
 Il **daemon** (`npm run daemon`) gestisce automaticamente il resume all'avvio e nel cron giornaliero. I contenuti dei giorni precedenti vengono marcati come `expired` e non verranno mai ripubblicati.
 
 ## Note operative
 
-- **Orari di pubblicazione**: il publisher attende automaticamente l'orario definito nel profilo per ogni rubrica. Lanciare `npm run content` con anticipo
-- **Restart sicuri**: `pm2 restart il-capitano` riprende automaticamente la pubblicazione dei post rimasti in coda
+- **Orari di pubblicazione**: il publisher genera e pubblica ogni post just-in-time al momento schedulato. Il processo resta attivo tutto il giorno
+- **Formati sensibili alle formazioni**: formati con `publish_before_match` configurato vengono generati N minuti prima del match, per usare dati aggiornati sui giocatori
+- **Restart sicuri**: `pm2 restart il-capitano` riprende automaticamente la pubblicazione dei post rimasti in coda. I plan item senza contenuto vengono rigenerati
 - **Senza The Odds API Key**: il sistema usa football-data.org come fallback (solo fixtures, senza quote). Se anche questo non è disponibile, le rubriche che richiedono dati vengono saltate
 - **Free tier The Odds API**: 500 richieste/mese, sufficiente per uso singolo canale
 - **Modifiche al profilo**: modificare direttamente il file YAML in `config/profiles/`. Non serve rieseguire il parse

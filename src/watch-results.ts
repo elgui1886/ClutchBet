@@ -23,7 +23,7 @@ type ProfileCfg = NonNullable<ProfileConfig["config"]>;
 // ── Constants ────────────────────────────────────────────────
 
 const FOOTBALL_DATA_BASE = "https://api.football-data.org/v4";
-const FOOTBALL_DATA_COMPETITIONS = ["SA", "CL", "CI"]; // Serie A, Champions League, Coppa Italia
+const DEFAULT_COMPETITIONS = ["SA", "CL", "CI"];
 const UPDATE_PROMPT_PATH = path.resolve("prompts", "results-update.md");
 
 const MATCH_DURATION_MS = 2 * 60 * 60 * 1000;   // 2 hours
@@ -129,17 +129,21 @@ async function main() {
   const profileSlug = profileSlugFromPath(profilePath);
   const cfg = profile.config ?? {};
 
+  // Derive competitions from profile config
+  const fdCompetitions = (cfg.competitions?.footballData ?? []).map((c: { code: string }) => c.code);
+  const competitions = fdCompetitions.length > 0 ? fdCompetitions : DEFAULT_COMPETITIONS;
+
   console.log(`📄 Profile: ${profile.profile.name} (${profileSlug})`);
   console.log(`📡 Publish channel: ${cfg.publishChannel ?? "none"}`);
   console.log(`📝 Review before publish: ${cfg.reviewBeforePublish ?? false}\n`);
 
   // Initial scan & schedule
-  scanAndSchedule(cfg, profile, profileSlug);
+  scanAndSchedule(cfg, profile, profileSlug, competitions);
 
   // Periodic re-scan for new bets (published by npm run content meanwhile)
   const scanInterval = setInterval(() => {
     console.log(`\n🔄 [${now()}] Re-scanning for new pending bets...`);
-    scanAndSchedule(cfg, profile, profileSlug);
+    scanAndSchedule(cfg, profile, profileSlug, competitions);
   }, SCAN_INTERVAL_MS);
 
   console.log("⏳ Watcher is running. Press Ctrl+C to stop.\n");
@@ -147,7 +151,7 @@ async function main() {
 
 // ── Scheduling ───────────────────────────────────────────────
 
-function scanAndSchedule(config: ProfileCfg, profile: ProfileConfig, profileSlug: string) {
+function scanAndSchedule(config: ProfileCfg, profile: ProfileConfig, profileSlug: string, competitions: string[]) {
   const pending = getPendingBets(profileSlug);
   if (pending.length === 0) {
     console.log("✅ No pending bets.");
@@ -176,7 +180,7 @@ function scanAndSchedule(config: ProfileCfg, profile: ProfileConfig, profileSlug
       retryCount: 0,
       bets,
       timer: setTimeout(
-        () => enqueueCheck(() => runCheck(key, config, profile)),
+        () => enqueueCheck(() => runCheck(key, config, profile, competitions)),
         delayMs
       ),
     };
@@ -204,14 +208,14 @@ function scanAndSchedule(config: ProfileCfg, profile: ProfileConfig, profileSlug
 
 // ── Check execution ──────────────────────────────────────────
 
-async function runCheck(key: string, config: ProfileCfg, profile: ProfileConfig) {
+async function runCheck(key: string, config: ProfileCfg, profile: ProfileConfig, competitions: string[]) {
   const check = scheduledChecks.get(key);
   if (!check) return;
 
   const b = check.bets[0];
   console.log(`\n🔍 [${now()}] Checking: ${b.homeTeam} vs ${b.awayTeam}...`);
 
-  const results = await fetchResults(check.bets, config);
+  const results = await fetchResults(check.bets, config, competitions);
 
   const resolved: TrackedBet[] = [];
   const unresolved: TrackedBet[] = [];
@@ -250,7 +254,7 @@ async function runCheck(key: string, config: ProfileCfg, profile: ProfileConfig)
       );
       check.bets = unresolved;
       check.timer = setTimeout(
-        () => enqueueCheck(() => runCheck(key, config, profile)),
+        () => enqueueCheck(() => runCheck(key, config, profile, competitions)),
         RETRY_DELAY_MS
       );
     } else {
@@ -330,7 +334,8 @@ async function publishUpdate(
 
 async function fetchResults(
   bets: TrackedBet[],
-  config: ProfileCfg
+  config: ProfileCfg,
+  competitions: string[],
 ): Promise<MatchResult[]> {
   const apiKey = process.env.FOOTBALL_DATA_API_KEY;
 
@@ -343,7 +348,7 @@ async function fetchResults(
   const allResults: MatchResult[] = [];
 
   for (const date of dates) {
-    for (const competition of FOOTBALL_DATA_COMPETITIONS) {
+    for (const competition of competitions) {
       try {
         const url = new URL(`${FOOTBALL_DATA_BASE}/competitions/${competition}/matches`);
         url.searchParams.set("dateFrom", date);

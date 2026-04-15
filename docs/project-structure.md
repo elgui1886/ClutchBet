@@ -44,16 +44,16 @@ ClutchBet/
 │       ├── index.ts                   # Entry point (loads profile YAML)
 │       └── nodes/
 │           ├── scheduler.ts           # Decide which formats to generate
-│           ├── data-fetcher.ts        # Fetch fixtures + odds from The Odds API (fallback: football-data.org)
-│           ├── content-writer.ts      # LLM generates posts + extracts bet selections
+│           ├── data-fetcher.ts        # Fetch fixtures + odds from profile-configured competitions (The Odds API; fallback: football-data.org)
+│           ├── content-writer.ts      # PLANNER: assigns publish times + exports generateSingleFormat() for JIT
 │           ├── reviewer.ts            # Human-in-the-loop approval (s/n/edit)
-│           └── publisher.ts           # Publish + save bets to tracker
+│           └── publisher.ts           # JIT: wait → generate → publish + save bets to tracker
 ├── config/
 │   ├── channels.yaml                  # Generation: topic, channels, publish target
 │   ├── analysis.yaml                  # Analysis: channel, months
 │   ├── content.yaml                   # Content generator: profile, league, defaults
 │   └── profiles/                      # Parsed YAML profiles (from parse-profile)
-│       └── il-capitano.yaml           # Profile + config (publishChannel, league, ecc.)
+│       └── il-capitano.yaml           # Example profile (publishChannel, competitions, league, ecc.)
 ├── prompts/
 │   ├── telegram-filter.md             # Filter: Italian football + active event?
 │   ├── image-analysis.md              # Extract bets from slip images
@@ -121,14 +121,15 @@ Used by the content-generator publisher (to save bets) and check-results/watch-r
 
 ### `content-store.ts`
 
-Store di pubblicazione persistente su SQLite (`data/clutchbet.db`, tabella `content_queue`). Salva i contenuti generati su disco prima della pubblicazione, così sopravvivono a crash o restart.
+Store di pubblicazione persistente su SQLite (`data/clutchbet.db`, tabella `content_queue`). Salva i plan item (schedule) su disco prima della generazione, così sopravvivono a crash o restart. Il contenuto viene generato just-in-time e salvato nel DB subito prima della pubblicazione.
 
 Ogni contenuto ha uno stato: `pending` → `published` oppure `expired` (se appartiene a un giorno precedente).
 
-- `saveContentItems(items, profile, date)` — salva i contenuti generati (skip duplicati)
+- `saveContentItems(items, profile, date)` — salva i plan item schedulati (skip duplicati)
 - `getPendingContent(profile, date)` — recupera i contenuti non ancora pubblicati per un profilo/data
-- `hasContentForDate(profile, date)` — controlla se i contenuti sono già stati generati per oggi
+- `hasContentForDate(profile, date)` — controlla se i contenuti sono già stati schedulati per oggi
 - `markContentPublished(id)` — segna un contenuto come pubblicato
+- `updateContentGenerated(id, text, imageBase64?, betsJson?)` — aggiorna un plan item con il contenuto generato just-in-time
 - `expireOldContent(today)` — scade i contenuti pending dei giorni precedenti (non verranno mai ripubblicati)
 
 ### `content-history.ts`

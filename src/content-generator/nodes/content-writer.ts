@@ -13,6 +13,7 @@ import type {
   FormatConfig,
   Fixture,
   ProfileConfig,
+  SquadPlayer,
 } from "../state.js";
 
 const CONTENT_PROMPT_PATH = path.resolve("prompts", "content-post.md");
@@ -89,25 +90,116 @@ function computeDynamicPublishTime(
 }
 
 /**
- * Content-writer node — generates one post per scheduled format using the LLM.
- * The profile's tone of voice, format template, and real sports data are injected into the prompt.
- * For bet-containing formats, also extracts structured bet data for tracking.
+ * Content-writer node — PLANNER mode.
+ *
+ * Instead of generating all content upfront, this node now only computes
+ * the publish schedule (which format at what time). Actual content generation
+ * happens just-in-time inside the publisher, right before each post goes out.
+ *
+ * This prevents lineup-dependent formats (marcatori, cartellini) from citing
+ * players who may not end up playing due to late injuries or tactical choices.
  */
 export async function contentWriterNode(
   state: ContentStateType
 ): Promise<Partial<ContentStateType>> {
-  const { profile, profilePath, scheduledFormats, fixtures } = state;
+  const { profile, scheduledFormats, fixtures } = state;
 
   if (!profile) {
-    console.log("❌ No profile loaded. Cannot generate content.");
+    console.log("❌ No profile loaded. Cannot plan content.");
     return { contentItems: [] };
   }
 
   if (scheduledFormats.length === 0) {
-    console.log("ℹ️  No formats scheduled. Nothing to generate.");
+    console.log("ℹ️  No formats scheduled. Nothing to plan.");
     return { contentItems: [] };
   }
 
+  console.log(`\n📋 Planning publish schedule for ${scheduledFormats.length} format(s)...\n`);
+
+  const items: ContentItem[] = [];
+  let earlyBetIndex = 0;
+
+  // Separate bet formats into "early" (spread from 12:00) and "late" (before match)
+  const earlyBetFormats = scheduledFormats.filter((s) => {
+    const f = profile.formats.find((fmt) => fmt.slug === s);
+    return f && hasBets(f) && !f.publish_before_match;
+  });
+
+  const totalEarlyBets = earlyBetFormats.length;
+
+  for (const slug of scheduledFormats) {
+    const format = profile.formats.find((f) => f.slug === slug);
+    if (!format) {
+      console.log(`⚠️  Format "${slug}" not found in profile. Skipping.`);
+      continue;
+    }
+
+    // Compute publish time
+    let publishTime = format.publish_time;
+
+    if (format.publish_before_match && fixtures.length > 0) {
+      // Late-generation format: publish N minutes before earliest kickoff
+      publishTime = computeBeforeMatchTime(fixtures, format.publish_before_match);
+      console.log(`  ⏰ ${format.name}: ${publishTime ?? "now"} (${format.publish_before_match} min before match)`);
+    } else if (hasBets(format) && fixtures.length > 0) {
+      // Early bet format: spread from 12:00 to 1h before kickoff
+      publishTime = computeDynamicPublishTime(undefined, fixtures, earlyBetIndex, totalEarlyBets);
+      earlyBetIndex++;
+      console.log(`  ⏰ ${format.name}: ${publishTime ?? "now"} (spread ${earlyBetIndex}/${totalEarlyBets})`);
+    } else {
+      console.log(`  ⏰ ${format.name}: ${publishTime ?? "now"} (fixed)`);
+    }
+
+    items.push({
+      formatSlug: slug,
+      formatName: format.name,
+      text: "",  // empty — content will be generated just-in-time by the publisher
+      publishTime,
+      approved: false,
+      published: false,
+    });
+  }
+
+  console.log(`\n📋 Schedule planned: ${items.length} post(s)\n`);
+
+  return { contentItems: items };
+}
+
+/**
+ * Computes publish time as N minutes before the earliest fixture kickoff.
+ * Returns undefined if the time has already passed.
+ */
+function computeBeforeMatchTime(
+  fixtures: Fixture[],
+  minutesBefore: number,
+): string | undefined {
+  const footballFixtures = fixtures.filter((f) => f.sport !== "tennis");
+  const kickoffs = footballFixtures.map((f) => f.time).filter(Boolean);
+  if (kickoffs.length === 0) return undefined;
+
+  kickoffs.sort();
+  const [h, m] = kickoffs[0].split(":").map(Number);
+  const pubMinutes = h * 60 + m - minutesBefore;
+
+  if (pubMinutes <= nowMinutesInRome()) return undefined;
+
+  const pubH = Math.floor(pubMinutes / 60);
+  const pubM = pubMinutes % 60;
+  return `${String(pubH).padStart(2, "0")}:${String(pubM).padStart(2, "0")}`;
+}
+
+/**
+ * Generates content for a single format. Called just-in-time by the publisher
+ * right before the post is published.
+ *
+ * @returns The generated text, optional image, and optional bets.
+ */
+export async function generateSingleFormat(
+  format: FormatConfig,
+  profile: ProfileConfig,
+  profilePath: string,
+  fixtures: Fixture[],
+): Promise<{ text: string; imageBase64?: string; bets?: BetSelection[] }> {
   const profileSlug = profileSlugFromPath(profilePath);
 
   const model = new ChatOpenAI({
@@ -118,131 +210,97 @@ export async function contentWriterNode(
   });
 
   const template = loadPrompt(CONTENT_PROMPT_PATH);
-  const items: ContentItem[] = [];
-  let betFormatIndex = 0;
 
-  // Count bet-containing formats so we can spread their publish times evenly
-  const totalBetFormats = scheduledFormats.filter((s) => {
-    const f = profile.formats.find((fmt) => fmt.slug === s);
-    return f && hasBets(f);
-  }).length;
+  // Filter out fixtures that have already started (important for JIT generation)
+  const activeFixtures = fixtures.filter((f) => {
+    const [h, m] = f.time.split(":").map(Number);
+    return h * 60 + m > nowMinutesInRome();
+  });
 
-  for (const slug of scheduledFormats) {
-    const format = profile.formats.find((f) => f.slug === slug);
-    if (!format) {
-      console.log(`⚠️  Format "${slug}" not found in profile. Skipping.`);
-      continue;
+  console.log(`✍️  Generating: ${format.name} (${activeFixtures.length} active fixtures)...`);
+
+  // Load past topic history for educational formats
+  const pastTopics = !hasBets(format)
+    ? loadTopicHistory(profileSlug, format.slug)
+    : [];
+
+  const prompt = buildPrompt(template, profile, format, activeFixtures, pastTopics);
+  const response = await model.invoke([new HumanMessage(prompt)]);
+  const text =
+    typeof response.content === "string"
+      ? response.content
+      : JSON.stringify(response.content);
+
+  // Extract structured bets for tracking
+  let bets: BetSelection[] | undefined;
+  if (hasBets(format) && activeFixtures.length > 0) {
+    console.log(`  📊 Extracting bet selections for tracking...`);
+    bets = await extractBets(model, text.trim(), activeFixtures);
+    if (bets.length > 0) {
+      console.log(`  📊 Found ${bets.length} bet(s): ${bets.map((b) => `${b.homeTeam}-${b.awayTeam} ${b.selection}`).join(", ")}`);
     }
-
-    console.log(`✍️  Generating: ${format.name}...`);
-
-    // Load past topic history for educational formats (no sports data needed)
-    const pastTopics = !hasBets(format)
-      ? loadTopicHistory(profileSlug, slug)
-      : [];
-
-    const prompt = buildPrompt(template, profile, format, fixtures, pastTopics);
-    const response = await model.invoke([new HumanMessage(prompt)]);
-    const text =
-      typeof response.content === "string"
-        ? response.content
-        : JSON.stringify(response.content);
-
-    // Extract structured bets for tracking (only for bet-containing formats)
-    let bets: BetSelection[] | undefined;
-    if (hasBets(format) && fixtures.length > 0) {
-      console.log(`  📊 Extracting bet selections for tracking...`);
-      bets = await extractBets(model, text.trim(), fixtures);
-      if (bets.length > 0) {
-        console.log(`  📊 Found ${bets.length} bet(s): ${bets.map((b) => `${b.homeTeam}-${b.awayTeam} ${b.selection}`).join(", ")}`);
-      }
-    }
-
-    // Render bet-slip image only if the format is configured for it
-    let imageBase64: string | undefined;
-    if (format.generate_image && bets && bets.length > 0) {
-      try {
-        console.log(`  🖼️  Rendering bet-slip image...`);
-        const slip: BetSlip = {
-          title: format.name,
-          bets: bets.map((b) => ({
-            homeTeam: b.homeTeam,
-            awayTeam: b.awayTeam,
-            betType: b.selection,
-            odd: b.odds,
-          })),
-          totalOdd: Math.min(
-            bets.reduce((acc, b) => acc * b.odds, 1),
-            35
-          ),
-        };
-
-        // Generate AI background if branding is available
-        let backgroundBase64: string | undefined;
-        if (profile.branding) {
-          try {
-            backgroundBase64 = await generateBackground(
-              profile.branding,
-              format.name,
-            );
-          } catch (bgErr) {
-            console.log(`  ⚠️  AI background generation failed: ${bgErr}. Using plain background.`);
-          }
-        }
-
-        const imageBuffer = await renderBetSlipImage(
-          slip,
-          profile.branding,
-          profile.profile.name,
-          backgroundBase64,
-        );
-        imageBase64 = imageBuffer.toString("base64");
-        console.log(`  🖼️  Image rendered (${Math.round(imageBuffer.length / 1024)} KB)`);
-      } catch (err) {
-        console.log(`  ⚠️  Image rendering failed: ${err}. Publishing text only.`);
-      }
-    }
-
-    // Save topic to history for educational formats to avoid future duplicates
-    if (!hasBets(format)) {
-      try {
-        const topicSummary = await extractTopicSummary(model, text.trim());
-        if (topicSummary) {
-          saveTopicEntry(profileSlug, slug, topicSummary);
-          console.log(`  📝 Topic saved to history: "${topicSummary}"`);
-        }
-      } catch (err) {
-        console.log(`  ⚠️  Could not save topic to history: ${err}`);
-      }
-    }
-
-    // Compute publish time: dynamic for bet formats, fixed for non-bet formats
-    let publishTime = format.publish_time;
-    if (hasBets(format) && fixtures.length > 0) {
-      publishTime = computeDynamicPublishTime(bets, fixtures, betFormatIndex, totalBetFormats);
-      betFormatIndex++;
-      if (publishTime) {
-        console.log(`  ⏰ Dynamic publish time: ${publishTime} (spread from 12:00 to 1h before kickoff, ${betFormatIndex}/${totalBetFormats})`);
-      } else {
-        console.log(`  ⏰ Computed time already past — publishing immediately`);
-      }
-    }
-
-    items.push({
-      formatSlug: slug,
-      formatName: format.name,
-      text: text.trim(),
-      imageBase64,
-      publishTime,
-      bets,
-      approved: false,
-      published: false,
-    });
-
-    console.log(`✅ ${format.name} generated (${text.trim().length} chars)${format.publish_time ? ` — scheduled for ${format.publish_time}` : ""}\n`);
   }
 
-  return { contentItems: items };
+  // Render bet-slip image
+  let imageBase64: string | undefined;
+  if (format.generate_image && bets && bets.length > 0) {
+    try {
+      console.log(`  🖼️  Rendering bet-slip image...`);
+      const slip: BetSlip = {
+        title: format.name,
+        bets: bets.map((b) => ({
+          homeTeam: b.homeTeam,
+          awayTeam: b.awayTeam,
+          betType: b.selection,
+          odd: b.odds,
+        })),
+        totalOdd: Math.min(
+          bets.reduce((acc, b) => acc * b.odds, 1),
+          35
+        ),
+      };
+
+      let backgroundBase64: string | undefined;
+      if (profile.branding) {
+        try {
+          backgroundBase64 = await generateBackground(
+            profile.branding,
+            format.name,
+          );
+        } catch (bgErr) {
+          console.log(`  ⚠️  AI background generation failed: ${bgErr}. Using plain background.`);
+        }
+      }
+
+      const imageBuffer = await renderBetSlipImage(
+        slip,
+        profile.branding,
+        profile.profile.name,
+        backgroundBase64,
+      );
+      imageBase64 = imageBuffer.toString("base64");
+      console.log(`  🖼️  Image rendered (${Math.round(imageBuffer.length / 1024)} KB)`);
+    } catch (err) {
+      console.log(`  ⚠️  Image rendering failed: ${err}. Publishing text only.`);
+    }
+  }
+
+  // Save topic to history for educational formats
+  if (!hasBets(format)) {
+    try {
+      const topicSummary = await extractTopicSummary(model, text.trim());
+      if (topicSummary) {
+        saveTopicEntry(profileSlug, format.slug, topicSummary);
+        console.log(`  📝 Topic saved to history: "${topicSummary}"`);
+      }
+    } catch (err) {
+      console.log(`  ⚠️  Could not save topic to history: ${err}`);
+    }
+  }
+
+  console.log(`✅ ${format.name} generated (${text.trim().length} chars)\n`);
+
+  return { text: text.trim(), imageBase64, bets };
 }
 
 /**
@@ -271,7 +329,7 @@ Rispondi ESCLUSIVAMENTE con un array JSON valido. Niente testo aggiuntivo. Ogni 
   {
     "homeTeam": "Squadra Casa",
     "awayTeam": "Squadra Ospite",
-    "league": "Serie A",
+    "league": "Nome Competizione",
     "kickoff": "20:45",
     "selection": "Over 2.5",
     "odds": 1.85
@@ -390,6 +448,28 @@ function buildExamplePostsSection(format: FormatConfig): string {
   return `### Esempi di post REALI per questo format (IMITALI come stile, tono e struttura)\n\nQuesti sono post reali che hai scritto in passato. Il tuo nuovo post deve avere lo STESSO livello di personalità, lo STESSO modo di parlare, le STESSE scelte lessicali. Non copiarli parola per parola (i dati cambiano), ma il FEELING deve essere identico.\n\n${examples}`;
 }
 
+/** Formats a squad into a compact string grouped by role. */
+function formatSquad(squad: SquadPlayer[]): string {
+  const groups: Record<string, string[]> = {};
+  for (const p of squad) {
+    // Normalize positions into broad categories
+    let role: string;
+    const pos = p.position.toLowerCase();
+    if (pos.includes("goal")) role = "POR";
+    else if (pos.includes("back") || pos.includes("defen")) role = "DIF";
+    else if (pos.includes("mid")) role = "CEN";
+    else role = "ATT";
+
+    (groups[role] ??= []).push(p.name);
+  }
+
+  const order = ["POR", "DIF", "CEN", "ATT"];
+  return order
+    .filter((r) => groups[r]?.length)
+    .map((r) => `[${r}] ${groups[r]!.join(", ")}`)
+    .join(" | ");
+}
+
 function buildSportsData(
   format: FormatConfig,
   fixtures: Fixture[],
@@ -459,6 +539,13 @@ function buildSportsData(
           lines.push(`- Fonte quote: ${o.bookmaker}`);
         }
       }
+      // Current squad data for each team
+      if (fixture.homeSquad && fixture.homeSquad.length > 0) {
+        lines.push(`- Rosa attuale ${fixture.homeTeam}: ${formatSquad(fixture.homeSquad)}`);
+      }
+      if (fixture.awaySquad && fixture.awaySquad.length > 0) {
+        lines.push(`- Rosa attuale ${fixture.awayTeam}: ${formatSquad(fixture.awaySquad)}`);
+      }
       lines.push("");
     }
   }
@@ -471,7 +558,12 @@ function buildSportsData(
       "> In fondo al post mostra la QUOTA TOTALE della schedina (prodotto delle singole quote).\n\n" +
       "> Le quote sopra sono REALI e aggiornate. Usale nei tuoi post. " +
       "Non inventare MAI quote, partite, giocatori o statistiche. " +
-      "Se un dato non è disponibile, omettilo."
+      "Se un dato non è disponibile, omettilo.\n\n" +
+      "> ⚠️ REGOLA GIOCATORI — USA SOLO LA ROSA ATTUALE:\n" +
+      "> Se citi giocatori nel post (marcatori, cartellini, ecc.), usa ESCLUSIVAMENTE " +
+      "i nomi presenti nelle rose attuali elencate sopra per ogni squadra. " +
+      "NON usare giocatori dalla tua memoria — potrebbero essere stati ceduti o ritirati. " +
+      "Se la rosa di una squadra non è disponibile, NON citare giocatori di quella squadra."
   );
 
   return lines.join("\n");
