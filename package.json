@@ -12,6 +12,7 @@
     "watch-results": "tsx src/watch-results.ts",
     "parse-profile": "tsx src/parse-profile.ts -- output/profiles/il-capitano.md",
     "tips-extractor": "tsx src/index.ts tips-extractor",
+    "setup-telegram": "tsx src/setup-telegram.ts",
     "daemon": "tsx src/daemon.ts",
     "reset": "tsx src/reset.ts",
     "build": "tsc",
