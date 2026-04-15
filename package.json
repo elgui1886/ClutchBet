@@ -11,6 +11,7 @@
     "check-results": "tsx src/check-results.ts",
     "watch-results": "tsx src/watch-results.ts",
     "parse-profile": "tsx src/parse-profile.ts -- output/profiles/il-capitano.md",
+    "tips-extractor": "tsx src/index.ts tips-extractor",
     "daemon": "tsx src/daemon.ts",
     "reset": "tsx src/reset.ts",
     "build": "tsc",

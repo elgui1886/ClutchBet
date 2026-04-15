@@ -1,11 +1,7 @@
 import { Annotation } from "@langchain/langgraph";
+import type { RawPost } from "../shared/channel-scraper.js";
 
-/** A raw post scraped from channel history */
-export interface RawPost {
-  text: string;
-  date: string;       // ISO date string
-  hasImage: boolean;
-}
+export type { RawPost };
 
 export const AnalysisState = Annotation.Root({
   /** Channel identifier (any supported format) */

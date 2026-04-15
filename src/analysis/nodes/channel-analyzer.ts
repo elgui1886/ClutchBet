@@ -3,7 +3,8 @@ import { ChatOpenAI } from "@langchain/openai";
 import { HumanMessage } from "@langchain/core/messages";
 import * as path from "node:path";
 import { loadPrompt } from "../../shared/llm-utils.js";
-import type { AnalysisStateType, RawPost } from "../state.js";
+import type { AnalysisStateType } from "../state.js";
+import type { RawPost } from "../../shared/channel-scraper.js";
 
 const POSTS_PER_CHUNK = 50;
 

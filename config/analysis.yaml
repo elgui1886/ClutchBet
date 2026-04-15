@@ -6,5 +6,10 @@
 #   - Numeric ID:       "1259302052"
 channel: "https://web.telegram.org/k/#-1013023602"
 
-# How many months of history to analyze (from today backwards)
+# How many months of history to analyze (from today backwards) — used by: npm run analysis
 months: 3
+
+# How many posts to scrape per run — used by: npm run tips-extractor
+# Each run fetches this many posts going backwards from the oldest already stored.
+# Example: 100 → run 1 fetches posts 1-100 (newest), run 2 fetches 101-200, etc.
+post_limit: 100
