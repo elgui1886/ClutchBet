@@ -130,19 +130,16 @@ export async function dbWriterNode(
   const affiliateName = channelTitle || channel;
   const db = initDb();
 
-  // Remove only existing data for this channel so other channels are preserved
+  // Check existing records for info only (incremental mode — no deletion)
   const existingPostIds = db
     .prepare("SELECT post_id FROM post_db WHERE post_affiliate_name = ?")
     .all(affiliateName) as { post_id: number }[];
 
   if (existingPostIds.length > 0) {
-    const ids = existingPostIds.map((r) => r.post_id).join(",");
-    db.exec(`DELETE FROM selections_db WHERE post_id IN (${ids})`);
-    db.exec(`DELETE FROM tips_db WHERE post_id IN (${ids})`);
-    db.prepare("DELETE FROM post_db WHERE post_affiliate_name = ?").run(affiliateName);
-    console.log(`🗄️  Cleared ${existingPostIds.length} existing post(s) for "${affiliateName}"\n`);
+    console.log(`🗄️  Database already contains ${existingPostIds.length} post(s) for "${affiliateName}"`);
+    console.log(`    Inserting new posts incrementally...\n`);
   } else {
-    console.log(`🗄️  No existing data for "${affiliateName}" — fresh insert\n`);
+    console.log(`🗄️  First run for "${affiliateName}" — inserting initial batch\n`);
   }
 
   // post_id must be globally unique across all channels
@@ -243,13 +240,32 @@ export async function dbWriterNode(
   });
 
   commitAll(analyzedPosts);
+
+  // Get final counts for this channel
+  const finalCounts = db
+    .prepare(`
+      SELECT 
+        COUNT(DISTINCT p.post_id) as total_posts,
+        COUNT(DISTINCT t.tip_id) as total_tips,
+        COUNT(DISTINCT s.selection_id) as total_selections
+      FROM post_db p
+      LEFT JOIN tips_db t ON t.post_id = p.post_id
+      LEFT JOIN selections_db s ON s.post_id = p.post_id
+      WHERE p.post_affiliate_name = ?
+    `)
+    .get(affiliateName) as { total_posts: number; total_tips: number; total_selections: number };
+
   db.close();
 
   console.log("─".repeat(50));
-  console.log("✅ Database saved successfully!");
-  console.log(`   Posts written    : ${postsCount}`);
-  console.log(`   Tips written     : ${tipsCount}`);
-  console.log(`   Selections       : ${selectionsCount}`);
+  console.log("✅ Database updated successfully!");
+  console.log(`   Posts added      : ${postsCount}`);
+  console.log(`   Tips added       : ${tipsCount}`);
+  console.log(`   Selections added : ${selectionsCount}`);
+  console.log(`   ─────────────────────────────────────────`);
+  console.log(`   Total posts      : ${finalCounts.total_posts}`);
+  console.log(`   Total tips       : ${finalCounts.total_tips}`);
+  console.log(`   Total selections : ${finalCounts.total_selections}`);
   console.log(`   Database         : ${DB_PATH}`);
 
   return {};

@@ -20,6 +20,30 @@ npm run tips -- --channel=https://t.me/example_tipster --limit=200
 2. **Analyzes** posts in batches using an LLM (configured via `OPENAI_MODEL` / `OPENAI_BASE_URL`)
 3. **Saves** structured data to `data/tips-analysis.db`
 
+## Incremental Mode
+
+The Tips Extractor runs in **incremental mode** to avoid re-processing posts:
+
+- **First run**: fetches the most recent N posts (e.g., 100)
+- **Subsequent runs**: fetches the next N older posts, starting from the oldest saved `telegram_msg_id`
+- **No duplicates**: uses `INSERT OR IGNORE` with a UNIQUE index on `(post_affiliate_name, telegram_msg_id)`
+- **No deletions**: data accumulates across runs — never deleted
+
+### Example workflow
+
+```bash
+# First run: saves posts 401-500 (most recent)
+npm run tips -- --channel=https://t.me/example --limit=100
+
+# Second run: saves posts 301-400 (older)
+npm run tips -- --channel=https://t.me/example --limit=100
+
+# Third run: saves posts 201-300 (even older)
+npm run tips -- --channel=https://t.me/example --limit=100
+```
+
+This allows you to progressively scrape the entire channel history without duplicates.
+
 ## Database schema (3-level hierarchy)
 
 The data is organized in three levels:
