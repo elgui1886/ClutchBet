@@ -117,14 +117,27 @@ function isNotStarted(time: string): boolean {
 }
 
 /** Extracts odds from the first available bookmaker. */
+/** Preferred bookmakers in priority order. */
+const PREFERRED_BOOKMAKERS = ["bet365", "betfair", "unibet", "williamhill", "pinnacle"];
+
+/** Picks the best bookmaker: tries preferred list first, then falls back to first available. */
+function pickBookmaker(bookmakers: OddsBookmaker[]): OddsBookmaker | undefined {
+  if (bookmakers.length === 0) return undefined;
+  for (const pref of PREFERRED_BOOKMAKERS) {
+    const found = bookmakers.find((b) => b.key === pref);
+    if (found) return found;
+  }
+  return bookmakers[0];
+}
+
 function extractOddsFromEvent(
   bookmakers: OddsBookmaker[],
   homeTeam: string,
   awayTeam: string,
 ): FixtureOdds | undefined {
-  if (bookmakers.length === 0) return undefined;
+  const bm = pickBookmaker(bookmakers);
+  if (!bm) return undefined;
 
-  const bm = bookmakers[0];
   const h2h = bm.markets.find((m) => m.key === "h2h");
   if (!h2h) return undefined;
 
