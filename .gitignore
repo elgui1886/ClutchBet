@@ -2,3 +2,6 @@ node_modules/
 dist/
 temp/
 .env
+data/clutchbet.db
+data/clutchbet.db-shm
+data/clutchbet.db-wal
