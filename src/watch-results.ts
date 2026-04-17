@@ -321,6 +321,11 @@ async function publishUpdate(
   // Generate update post
   const updateText = await generateUpdatePost(profile, resolved, schedine);
 
+  if (!updateText) {
+    console.log("\nℹ️  Nessun aggiornamento da pubblicare per queste schedine.");
+    return;
+  }
+
   // Render updated bet-slip images for schedine in_corsa or vinta
   const slipImages: Array<{ slipId: string; image: Buffer }> = [];
   for (const s of schedine) {
@@ -544,6 +549,8 @@ async function generateUpdatePost(
   resolved: TrackedBet[],
   schedine: Schedina[]
 ): Promise<string> {
+  if (schedine.length === 0) return "";
+
   const template = loadPrompt(UPDATE_PROMPT_PATH);
 
   const tonePrinciples = profile.tone.principles
@@ -556,7 +563,11 @@ async function generateUpdatePost(
     .map((p, i) => `${i + 1}. ${p}`)
     .join("\n");
 
-  const newlyResolved = resolved
+  // Filter to only bets from involved schedine
+  const schedineSlipIds = new Set(schedine.map((s) => s.slipId));
+  const relevantResolved = resolved.filter((b) => schedineSlipIds.has(b.slipId));
+
+  const newlyResolved = relevantResolved
     .map((bet) => {
       const icon =
         bet.result === "won" ? "✅" : bet.result === "lost" ? "❌" : "⚪";
@@ -739,10 +750,13 @@ async function generateChiusura(
     }
   }
   if (bruciate.length > 0) {
-    dailySummary += `Altre schedine perse: ${bruciate.length} (NON menzionarle nel post)\n`;
+    dailySummary += `Schedine perse: ${bruciate.length}\n`;
+    for (const s of bruciate) {
+      dailySummary += `  ❌ ${s.formatName} — quota ${s.totalOdds}\n`;
+    }
   }
-  if (vinte.length === 0 && quasiVinte.length === 0) {
-    dailySummary += "Giornata senza vincite particolari. Accetta con classe e guarda avanti.\n";
+  if (vinte.length === 0 && quasiVinte.length === 0 && bruciate.length > 0) {
+    dailySummary += "Giornata no. Nessuna vincita. Accetta con classe, guarda avanti senza drammi.\n";
   }
 
   // Tomorrow preview — simple day-of-week hint

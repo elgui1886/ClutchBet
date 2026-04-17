@@ -286,18 +286,12 @@ async function generateUpdatePost(
   const forbiddenPhrases = profile.tone.forbidden_phrases.map((p) => `- "${p}"`).join("\n");
   const lossPrinciples = profile.losses.principles.map((p, i) => `${i + 1}. ${p}`).join("\n");
 
-  // Filter schedine: only show WINS and NEAR-MISSES (lost by exactly 1 event)
-  const publishableSchedine = schedine.filter((s) => {
-    if (s.status === "vinta" || s.status === "in_corsa" || s.status === "pending") return true;
-    if (s.status === "bruciata") {
-      const lostCount = s.bets.filter((b) => b.result === "lost").length;
-      return lostCount === 1; // Near-miss: lost by exactly 1 event
-    }
-    return false;
-  });
+  // Include all schedine — followers always deserve to know the outcome.
+  // Bruciata are framed per loss management principles in the prompt.
+  const publishableSchedine = schedine.filter((s) => s.status !== "pending");
 
   if (publishableSchedine.length === 0) {
-    return ""; // Nothing worth publishing
+    return ""; // All still pending, nothing to publish yet
   }
 
   // Format newly resolved bets (only from publishable schedine)
