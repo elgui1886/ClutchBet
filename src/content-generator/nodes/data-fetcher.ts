@@ -80,6 +80,20 @@ interface FDMatchesResponse {
   message?: string;
 }
 
+// ── football-data.org lineup types ───────────────────────────
+
+interface FDLineupPlayer {
+  id: number;
+  name: string;
+  position: string | null;
+  shirtNumber?: number;
+}
+
+interface FDMatchSingle {
+  homeTeam: { lineup: FDLineupPlayer[]; bench: FDLineupPlayer[] };
+  awayTeam: { lineup: FDLineupPlayer[]; bench: FDLineupPlayer[] };
+}
+
 // ── Helpers ──────────────────────────────────────────────────
 
 /** Current time in Europe/Rome as minutes since midnight. */
@@ -533,6 +547,121 @@ async function enrichFixturesWithSquads(
   );
 }
 
+/** Fuzzy team name match — handles abbreviations and minor differences. */
+function teamsMatch(a: string, b: string): boolean {
+  const al = a.toLowerCase().trim();
+  const bl = b.toLowerCase().trim();
+  return al === bl || al.includes(bl) || bl.includes(al);
+}
+
+/**
+ * Enriches fixtures with football-data.org match IDs by cross-referencing today's FD schedule.
+ * Match IDs are needed to fetch official lineups at publishing time.
+ * Called after fixtures are fetched from any source.
+ */
+async function enrichFixturesWithFDMatchIds(
+  fixtures: Fixture[],
+  fdCompetitions: Array<{ code: string; label: string }>,
+  date: string,
+): Promise<void> {
+  const apiKey = process.env.FOOTBALL_DATA_API_KEY;
+  if (!apiKey) return;
+
+  const footballFixtures = fixtures.filter((f) => f.sport !== "tennis" && !f.fdMatchId);
+  if (footballFixtures.length === 0) return;
+
+  for (const { code } of fdCompetitions) {
+    try {
+      const url = new URL(`${FOOTBALL_DATA_BASE}/competitions/${code}/matches`);
+      url.searchParams.set("dateFrom", date);
+      url.searchParams.set("dateTo", date);
+
+      const response = await fetch(url.toString(), {
+        headers: { "X-Auth-Token": apiKey },
+      });
+      if (!response.ok) continue;
+
+      const data = (await response.json()) as FDMatchesResponse;
+      if (data.errorCode) continue;
+
+      for (const match of data.matches) {
+        for (const fixture of footballFixtures) {
+          if (fixture.fdMatchId) continue;
+          if (
+            teamsMatch(fixture.homeTeam, match.homeTeam.name) &&
+            teamsMatch(fixture.awayTeam, match.awayTeam.name)
+          ) {
+            fixture.fdMatchId = match.id;
+            break;
+          }
+        }
+      }
+    } catch {
+      // non-critical — lineup check will fall back to squad data
+    }
+  }
+
+  const mapped = footballFixtures.filter((f) => f.fdMatchId).length;
+  if (mapped > 0) {
+    console.log(`   🔖 Mapped ${mapped} fixture(s) to FD match IDs for lineup support`);
+  }
+}
+
+/**
+ * Fetches official starting lineups from football-data.org for fixtures that have FD match IDs.
+ * Mutates fixtures in place: when a lineup is released, replaces homeSquad/awaySquad
+ * with confirmed starters and marks hasOfficialLineup = true.
+ *
+ * Returns true if at least one fixture received an official lineup.
+ */
+export async function fetchOfficialLineups(fixtures: Fixture[]): Promise<boolean> {
+  const apiKey = process.env.FOOTBALL_DATA_API_KEY;
+  if (!apiKey) return false;
+
+  const targets = fixtures.filter(
+    (f) => f.sport !== "tennis" && f.fdMatchId && !f.hasOfficialLineup,
+  );
+  if (targets.length === 0) {
+    // Already fetched previously
+    return fixtures.some((f) => f.hasOfficialLineup === true);
+  }
+
+  let anyFound = false;
+
+  for (const fixture of targets) {
+    try {
+      const response = await fetch(
+        `${FOOTBALL_DATA_BASE}/matches/${fixture.fdMatchId}`,
+        { headers: { "X-Auth-Token": apiKey } },
+      );
+      if (!response.ok) continue;
+
+      const data = (await response.json()) as FDMatchSingle;
+
+      if (data.homeTeam.lineup?.length > 0) {
+        fixture.homeSquad = data.homeTeam.lineup.map((p) => ({
+          name: p.name,
+          position: p.position ?? "Unknown",
+        }));
+        fixture.hasOfficialLineup = true;
+        anyFound = true;
+      }
+      if (data.awayTeam.lineup?.length > 0) {
+        fixture.awaySquad = data.awayTeam.lineup.map((p) => ({
+          name: p.name,
+          position: p.position ?? "Unknown",
+        }));
+        fixture.hasOfficialLineup = true;
+        anyFound = true;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return anyFound;
+}
+
 /**
  * Standalone fixture-fetch function for use outside the graph (e.g. resume mode).
  * Fetches football + tennis fixtures for the given date and enriches with squad data.
@@ -560,6 +689,10 @@ export async function fetchFixturesForDate(
 
   // Enrich with squad data
   await enrichFixturesWithSquads(allFixtures, fdComps);
+
+  // Enrich with FD match IDs for official lineup support
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
+  await enrichFixturesWithFDMatchIds(allFixtures, fdComps ?? DEFAULT_FD_COMPETITIONS, today);
 
   return allFixtures;
 }
@@ -690,6 +823,9 @@ export async function dataFetcherNode(
 
   // ── Enrich football fixtures with current squad data ──
   await enrichFixturesWithSquads(allFixtures, fdComps);
+
+  // ── Enrich with FD match IDs for official lineup support ──
+  await enrichFixturesWithFDMatchIds(allFixtures, fdComps, date);
 
   return { fixtures: allFixtures, scheduledFormats: updatedFormats };
 }

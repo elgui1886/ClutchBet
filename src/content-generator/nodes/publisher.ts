@@ -9,7 +9,8 @@ import {
   contentItemId,
 } from "../../shared/content-store.js";
 import { generateSingleFormat } from "./content-writer.js";
-import type { ContentStateType, ContentItem } from "../state.js";
+import { fetchOfficialLineups } from "./data-fetcher.js";
+import type { ContentStateType, ContentItem, Fixture } from "../state.js";
 
 const MAX_CAPTION = 1024;
 
@@ -98,6 +99,20 @@ export async function publisherNode(
 
           console.log(`\n  🔄 Generating content just-in-time for: ${item.formatName}...`);
           try {
+            // For lineup-dependent formats, wait for official lineups before generating.
+            // Publishing with squad data (not confirmed starters) risks citing non-playing players.
+            if (format.publish_before_match) {
+              const lineupStatus = await waitForOfficialLineups(fixtures, item.formatName);
+              if (lineupStatus === "timeout") {
+                console.log(`  ⏭️  ${item.formatName}: skipped — official lineups not released in time.`);
+                results.push(`⏭️ ${item.formatName}: skipped — official lineups not released`);
+                continue;
+              }
+              if (lineupStatus === "unavailable") {
+                console.log(`  ⚠️  ${item.formatName}: proceeding with squad data (FD lineup check unavailable).`);
+              }
+            }
+
             const generated = await generateSingleFormat(
               format,
               profile!,
@@ -212,6 +227,71 @@ async function waitUntil(timeStr: string, formatName: string, tz: string): Promi
   console.log(`  ⏳ ${formatName}: waiting until ${timeStr} (${tz}, ${waitLabel} from now)...`);
   await new Promise((resolve) => setTimeout(resolve, diffMs));
   console.log(`  ⏰ ${formatName}: it's ${timeStr} (${tz}) — publishing now`);
+}
+
+/**
+ * Waits for official lineups to be released by football-data.org.
+ * Polls every 5 minutes, up to 30 minutes.
+ *
+ * Returns:
+ * - "confirmed"   → official lineups loaded into fixtures (safe to generate)
+ * - "unavailable" → no FD API key or no match IDs (proceed with squad data + warning)
+ * - "timeout"     → lineups not released after 30 min (skip the format)
+ */
+async function waitForOfficialLineups(
+  fixtures: Fixture[],
+  formatName: string,
+): Promise<"confirmed" | "unavailable" | "timeout"> {
+  const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+  const MAX_WAIT_MIN = 30;
+
+  // Already confirmed from a previous format's check
+  if (fixtures.some((f) => f.hasOfficialLineup)) {
+    console.log(`  ✅ Official lineups already confirmed.`);
+    return "confirmed";
+  }
+
+  const hasFDKey = !!process.env.FOOTBALL_DATA_API_KEY;
+  const hasMatchIds = fixtures.some((f) => f.sport !== "tennis" && f.fdMatchId);
+
+  if (!hasFDKey || !hasMatchIds) {
+    console.log(
+      `  ⚠️  Lineup check unavailable for ${formatName}: ` +
+        (!hasFDKey ? "FOOTBALL_DATA_API_KEY not set." : "no FD match IDs found."),
+    );
+    return "unavailable";
+  }
+
+  console.log(`  🔍 Checking official lineups for ${formatName}...`);
+
+  const startMs = Date.now();
+  const maxMs = MAX_WAIT_MIN * 60 * 1000;
+
+  // First immediate attempt
+  const gotLineups = await fetchOfficialLineups(fixtures);
+  if (gotLineups) {
+    console.log(`  ✅ Official lineups confirmed.`);
+    return "confirmed";
+  }
+
+  // Poll until lineups are released or timeout
+  while (Date.now() - startMs < maxMs) {
+    const waitedMin = Math.round((Date.now() - startMs) / 60000);
+    console.log(
+      `  ⏳ Lineups not yet released for ${formatName} (${waitedMin}/${MAX_WAIT_MIN} min). Retrying in 5 min...`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+
+    const got = await fetchOfficialLineups(fixtures);
+    if (got) {
+      const elapsed = Math.round((Date.now() - startMs) / 60000);
+      console.log(`  ✅ Official lineups confirmed after ~${elapsed} min.`);
+      return "confirmed";
+    }
+  }
+
+  console.log(`  ❌ Official lineups not released after ${MAX_WAIT_MIN} min. Skipping ${formatName}.`);
+  return "timeout";
 }
 
 /**

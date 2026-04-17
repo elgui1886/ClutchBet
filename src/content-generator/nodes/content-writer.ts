@@ -229,19 +229,26 @@ export async function generateSingleFormat(
 
   const prompt = buildPrompt(template, profile, format, activeFixtures, pastTopics);
   const response = await model.invoke([new HumanMessage(prompt)]);
-  const text =
+  const raw =
     typeof response.content === "string"
       ? response.content
       : JSON.stringify(response.content);
 
-  // Extract structured bets for tracking
+  // Parse the unified JSON output (text + bets in a single LLM call)
+  let text: string;
   let bets: BetSelection[] | undefined;
-  if (hasBets(format) && activeFixtures.length > 0) {
-    console.log(`  📊 Extracting bet selections for tracking...`);
-    bets = await extractBets(model, text.trim(), activeFixtures);
-    if (bets.length > 0) {
-      console.log(`  📊 Found ${bets.length} bet(s): ${bets.map((b) => `${b.homeTeam}-${b.awayTeam} ${b.selection}`).join(", ")}`);
+  try {
+    const cleaned = raw.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+    const parsed = JSON.parse(cleaned) as { text: string; bets?: BetSelection[] };
+    text = parsed.text?.trim() ?? "";
+    if (hasBets(format) && Array.isArray(parsed.bets) && parsed.bets.length > 0) {
+      bets = parsed.bets;
+      console.log(`  📊 Found ${bets.length} bet(s): ${bets.map((b) => `${b.homeTeam}-${b.awayTeam} ${b.selection} @${b.odds}`).join(", ")}`);
     }
+  } catch {
+    // Fallback: treat the entire response as plain text (no bets)
+    console.log(`  ⚠️  Could not parse JSON response. Treating as plain text.`);
+    text = raw.trim();
   }
 
   // Render bet-slip image
@@ -257,9 +264,8 @@ export async function generateSingleFormat(
           betType: b.selection,
           odd: b.odds,
         })),
-        totalOdd: Math.min(
-          bets.reduce((acc, b) => acc * b.odds, 1),
-          35
+        totalOdd: parseFloat(
+          bets.reduce((acc, b) => acc * b.odds, 1).toFixed(2)
         ),
       };
 
@@ -304,57 +310,6 @@ export async function generateSingleFormat(
   console.log(`✅ ${format.name} generated (${text.trim().length} chars)\n`);
 
   return { text: text.trim(), imageBase64, bets };
-}
-
-/**
- * Asks the LLM to extract structured bet data from a generated post.
- */
-async function extractBets(
-  model: ChatOpenAI,
-  postText: string,
-  fixtures: Fixture[]
-): Promise<BetSelection[]> {
-  const fixtureList = fixtures
-    .map((f) => `${f.homeTeam} vs ${f.awayTeam} (${f.league}, ${f.time})`)
-    .join("\n");
-
-  const extractPrompt = `Analizza il seguente post di betting e estrai TUTTE le scommesse/selezioni proposte.
-
-## Post
-${postText}
-
-## Partite disponibili
-${fixtureList}
-
-## Output
-Rispondi ESCLUSIVAMENTE con un array JSON valido. Niente testo aggiuntivo. Ogni elemento:
-[
-  {
-    "homeTeam": "Squadra Casa",
-    "awayTeam": "Squadra Ospite",
-    "league": "Nome Competizione",
-    "kickoff": "20:45",
-    "selection": "Over 2.5",
-    "odds": 1.85
-  }
-]
-
-Se il post non contiene scommesse specifiche (es. contenuto educativo), rispondi con: []
-Se la quota non è specificata, usa 0 come valore.`;
-
-  try {
-    const response = await model.invoke([new HumanMessage(extractPrompt)]);
-    const raw =
-      typeof response.content === "string"
-        ? response.content
-        : JSON.stringify(response.content);
-
-    const cleaned = raw.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-    return JSON.parse(cleaned) as BetSelection[];
-  } catch {
-    console.log(`  ⚠️  Could not extract bets from post. Skipping tracking.`);
-    return [];
-  }
 }
 
 /**
@@ -542,12 +497,18 @@ function buildSportsData(
           lines.push(`- Fonte quote: ${o.bookmaker}`);
         }
       }
-      // Current squad data for each team
+      // Current squad / official lineup data for each team
       if (fixture.homeSquad && fixture.homeSquad.length > 0) {
-        lines.push(`- Rosa attuale ${fixture.homeTeam}: ${formatSquad(fixture.homeSquad)}`);
+        const label = fixture.hasOfficialLineup
+          ? `Formazione ufficiale (TITOLARI CONFERMATI) ${fixture.homeTeam}`
+          : `Rosa attuale ${fixture.homeTeam}`;
+        lines.push(`- ${label}: ${formatSquad(fixture.homeSquad)}`);
       }
       if (fixture.awaySquad && fixture.awaySquad.length > 0) {
-        lines.push(`- Rosa attuale ${fixture.awayTeam}: ${formatSquad(fixture.awaySquad)}`);
+        const label = fixture.hasOfficialLineup
+          ? `Formazione ufficiale (TITOLARI CONFERMATI) ${fixture.awayTeam}`
+          : `Rosa attuale ${fixture.awayTeam}`;
+        lines.push(`- ${label}: ${formatSquad(fixture.awaySquad)}`);
       }
       lines.push("");
     }
@@ -562,11 +523,15 @@ function buildSportsData(
       "> Le quote sopra sono REALI e aggiornate. Usale nei tuoi post. " +
       "Non inventare MAI quote, partite, giocatori o statistiche. " +
       "Se un dato non è disponibile, omettilo.\n\n" +
-      "> ⚠️ REGOLA GIOCATORI — USA SOLO LA ROSA ATTUALE:\n" +
-      "> Se citi giocatori nel post (marcatori, cartellini, ecc.), usa ESCLUSIVAMENTE " +
-      "i nomi presenti nelle rose attuali elencate sopra per ogni squadra. " +
-      "NON usare giocatori dalla tua memoria — potrebbero essere stati ceduti o ritirati. " +
-      "Se la rosa di una squadra non è disponibile, NON citare giocatori di quella squadra."
+      "> ⚠️ REGOLA GIOCATORI:\n" +
+      (fixtures.some((f) => f.hasOfficialLineup)
+        ? "> Le formazioni ufficiali sono CONFERMATE (sezioni 'Formazione ufficiale (TITOLARI CONFERMATI)'). " +
+          "Cita SOLO i giocatori elencati lì — sono i titolari certi. " +
+          "NON citare giocatori dalla tua memoria o da altre fonti."
+        : "> Sono disponibili solo le ROSE, non le formazioni ufficiali. " +
+          "Cita giocatori ESCLUSIVAMENTE dai nomi elencati nelle sezioni 'Rosa attuale'. " +
+          "NON usare giocatori dalla tua memoria — potrebbero essere stati ceduti o ritirati. " +
+          "Se la rosa di una squadra non è disponibile, NON citare giocatori di quella squadra.")
   );
 
   return lines.join("\n");

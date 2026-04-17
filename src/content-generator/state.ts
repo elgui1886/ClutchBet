@@ -31,6 +31,8 @@ export interface Fixture {
   sport?: string;     // "football" | "tennis" — defaults to "football"
   homeSquad?: SquadPlayer[];
   awaySquad?: SquadPlayer[];
+  fdMatchId?: number;         // football-data.org match ID — used to fetch official lineups
+  hasOfficialLineup?: boolean; // true when homeSquad/awaySquad contain confirmed starters (not just squad)
 }
 
 /** Branding configuration for image generation */

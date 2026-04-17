@@ -67,4 +67,25 @@ Queste frasi sono il TUO modo di comunicare. Ogni post che generi deve suonare C
 {affiliate_rules}
 ## Output
 
-Genera SOLO il testo del post, pronto per la pubblicazione su Telegram. Nessun commento, nessuna intestazione aggiuntiva, nessun delimitatore. Il tuo output deve iniziare DIRETTAMENTE con il contenuto del post.
+Rispondi ESCLUSIVAMENTE con un oggetto JSON valido. Nessun testo aggiuntivo, nessuna intestazione, nessun delimitatore markdown.
+
+```json
+{
+  "text": "testo del post pronto per la pubblicazione su Telegram",
+  "bets": [
+    {
+      "homeTeam": "Squadra Casa",
+      "awayTeam": "Squadra Ospite",
+      "league": "Nome Competizione",
+      "kickoff": "20:45",
+      "selection": "Over 2.5",
+      "odds": 1.85
+    }
+  ]
+}
+```
+
+- `text`: il testo del post ESATTAMENTE come deve apparire su Telegram. Inizia direttamente con il contenuto del post, senza prefissi.
+- `bets`: se il format prevede scommesse, inserisci OGNI selezione con la quota **IDENTICA** a quella scritta nel `text`. Se il format non prevede scommesse, usa `[]`.
+
+⚠️ Le quote nel campo `bets` devono essere **numericamente identiche** alle quote scritte nel `text`. Non arrotondare, non modificare. Immagine e testo devono sempre coincidere.
