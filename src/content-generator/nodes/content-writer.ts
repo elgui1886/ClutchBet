@@ -1,7 +1,7 @@
 import * as path from "node:path";
 import { HumanMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
-import { loadPrompt } from "../../shared/llm-utils.js";
+import { loadPrompt, buildSystemMessages } from "../../shared/llm-utils.js";
 import { renderBetSlipImage, type BetSlip } from "../../generation/image-renderer.js";
 import { generateBackground } from "../../generation/background-generator.js";
 import { profileSlugFromPath } from "../../shared/bet-tracker.js";
@@ -229,7 +229,8 @@ export async function generateSingleFormat(
     : [];
 
   const prompt = buildPrompt(template, profile, format, activeFixtures, pastTopics, alreadyPublishedBets);
-  const response = await model.invoke([new HumanMessage(prompt)]);
+  const systemMessages = buildSystemMessages(profile);
+  const response = await model.invoke([...systemMessages, new HumanMessage(prompt)]);
   const raw =
     typeof response.content === "string"
       ? response.content

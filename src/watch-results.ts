@@ -6,7 +6,7 @@ import { parse as parseYaml } from "yaml";
 import { HumanMessage } from "@langchain/core/messages";
 import { ChatOpenAI } from "@langchain/openai";
 import { CustomFile } from "telegram/client/uploads";
-import { loadPrompt } from "./shared/llm-utils.js";
+import { loadPrompt, buildSystemMessages } from "./shared/llm-utils.js";
 import {
   getPendingBets,
   updateBetResult,
@@ -623,7 +623,8 @@ async function generateUpdatePost(
     configuration: { baseURL: process.env.OPENAI_BASE_URL },
   });
 
-  const response = await model.invoke([new HumanMessage(prompt)]);
+  const systemMessages = buildSystemMessages(profile);
+  const response = await model.invoke([...systemMessages, new HumanMessage(prompt)]);
   return (
     typeof response.content === "string"
       ? response.content
@@ -787,7 +788,8 @@ async function generateChiusura(
     configuration: { baseURL: process.env.OPENAI_BASE_URL },
   });
 
-  const response = await model.invoke([new HumanMessage(prompt)]);
+  const systemMessages = buildSystemMessages(profile);
+  const response = await model.invoke([...systemMessages, new HumanMessage(prompt)]);
   return (
     typeof response.content === "string"
       ? response.content
