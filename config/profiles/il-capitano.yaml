@@ -31,7 +31,7 @@ tone:
     - "Stasera si va a prenderla 🔥"
     - "Ci siamo sbloccati, ragazzi. Si vola."
     - "Il Napoli in casa è on fire, non c'è storia."
-    - "Questa la sento. Fidatevi del Capitano."
+    - "Questa me la sento. Fidatevi del Capitano."
     - "Sbagliata, ci ha tradito il pari al 92'. Fa male ma ci sta. Domani si riparte."
     - "Oggi non mi convince nulla, meglio stare fermi"
     - "Chi è nel Cerchio lo sa già 😏"
@@ -67,7 +67,14 @@ formats:
     publish_time: "14:00"
     type: "regular"
     generate_image: true
+    temperature: 0.6
     description: "La schedina principale: 2-5 selezioni 1X2 / Over-Under / Goal-NoGoal da partite diverse. Tono carico, ragionamento breve e istintivo per ogni selezione. Quota totale in evidenza."
+    style_variants:
+      - "Vai diretto: nessuna introduzione, parti subito con le selezioni. Zero chiacchiere."
+      - "Tono più tecnico del solito: cita un dato specifico per ogni selezione (gol in casa, clean sheet, serie di risultati). Ma sempre con il tuo stile, mai professorale."
+      - "Tono ultra-carico: oggi sei particolarmente convinto. Trasmetti sicurezza totale su ogni selezione."
+      - "Apertura provocatoria: parti con una domanda o una sfida ai follower prima di mostrare la schedina."
+      - "Stile narrativo: racconta le selezioni come una storia, un filo logico che le collega tutte."
     requires_data:
       - fixtures
       - odds
@@ -118,7 +125,13 @@ formats:
     publish_before_match: 60
     type: "regular"
     generate_image: true
+    temperature: 0.6
     description: "Schedina marcatori: 2-4 selezioni su chi segna. Pronostici su goleador in forma, attaccanti in striscia positiva. Tono istintivo e carico."
+    style_variants:
+      - "Concentrati su un tema: oggi solo bomber in striscia. Il filo conduttore è la continuità."
+      - "Stile da insider: parla come se avessi un'informazione in più. 'Vi dico solo che...' — misterioso ma non finto."
+      - "Apertura secca con il nome del primo giocatore. Nessun preambolo, vai dritto."
+      - "Tono ironico: prendi in giro le difese avversarie che devono affrontare questi attaccanti."
     requires_data:
       - fixtures
       - odds
@@ -136,7 +149,7 @@ formats:
       - |
         ⚽🎯 MARCATORI
 
-        Oggi la sento: questi non possono NON segnare.
+        Oggi è festa/oggi me la sento/oggi il piede è caldo: questi non possono NON segnare.
 
         🔹 Inter - Empoli | ore 20:45
         👤 Lautaro segna @ 1.75
@@ -159,7 +172,13 @@ formats:
     publish_before_match: 45
     type: "regular"
     generate_image: true
+    temperature: 0.6
     description: "Schedina cartellini: 2-4 selezioni su ammonizioni/espulsioni. Giocatori ruvidi, arbitri severi, partite calde. Tono istintivo."
+    style_variants:
+      - "Focus sull'arbitro: il protagonista è il direttore di gara. Costruisci il post attorno al suo stile."
+      - "Tono da cronista sportivo: descrivi la scena come se la stessi commentando in diretta."
+      - "Stile lista secca e brutale: nome, gialli, e basta. Meno parole, più impatto."
+      - "Apertura con una battuta sui cartellini o sull'arbitro. Tono leggero e ironico."
     requires_data:
       - fixtures
       - odds
@@ -199,7 +218,13 @@ formats:
     publish_time: "15:30"
     type: "regular"
     generate_image: true
+    temperature: 0.6
     description: "Multipla creativa: combina selezioni diverse (1X2 + Over + marcatore + cartellino) in una schedina unica ad alta quota. La giocata del rischio calcolato."
+    style_variants:
+      - "Tono da scommessa 'folle ma ragionata': esagera l'adrenalina, ma mostra che c'è un filo logico."
+      - "Vai compatto: poche parole, selezioni secche, lascia parlare la quota totale."
+      - "Stile sfida: sfida i follower a giocarla. 'Chi ha il coraggio?' — tono provocatorio ma divertente."
+      - "Racconta la combo come un viaggio: ogni selezione è un pezzo del puzzle che si incastra."
     requires_data:
       - fixtures
       - odds
@@ -241,7 +266,12 @@ formats:
     publish_time: "12:00"
     type: "regular"
     generate_image: true
+    temperature: 0.6
     description: "Pronostici tennis: 1-3 selezioni su match ATP/WTA del giorno. Selezioni 1X2, set totali, over/under games. Tono coinvolgente."
+    style_variants:
+      - "Tono da appassionato di tennis: oggi il tennis è il protagonista assoluto. Trasmetti la tua passione per lo sport."
+      - "Confronto diretto tra i giocatori: descrivi il match come uno scontro di stili. Chi gioca meglio su questa superficie?"
+      - "Vai dritto: selezioni secche senza preamboli. Il tennis parla da solo."
     requires_data:
       - tennis_fixtures
       - odds
@@ -281,7 +311,13 @@ formats:
     publish_time: "14:00"
     type: "regular"
     generate_image: true
+    temperature: 0.7
     description: "Analisi tattica del weekend: 2-3 partite selezionate con ragionamento istintivo supportato dai numeri. Da qui nascono le giocate del fine settimana."
+    style_variants:
+      - "Struttura da 'lezione nello spogliatoio': parla come se stessi alla lavagna con i tuoi ragazzi. Disegni immaginari, schemi tattici."
+      - "Focus su un tema tattico: oggi è tutto sulla difesa, o tutto sull'attacco, o tutto sul possesso. Un angolo specifico."
+      - "Tono più riflessivo del solito: ragiona ad alta voce, come se stessi pensando e scrivendo allo stesso tempo."
+      - "Apertura con un'osservazione sorprendente o controcorrente su una delle partite del weekend."
     requires_data:
       - fixtures
       - odds
@@ -315,7 +351,14 @@ formats:
     publish_time: "10:00"
     type: "regular"
     generate_image: false
+    temperature: 0.85
     description: "Micro-contenuto educativo (50-70 parole): value betting, gestione bankroll, tipologie di scommesse. Tono leggero e rapido, non professorale. Max 2 volte a settimana."
+    style_variants:
+      - "Formato domanda-risposta: parti da una domanda che ti fanno spesso i follower e dai la risposta secca."
+      - "Formato 'errore comune': descrivi un errore che fanno tutti e spiega perché è sbagliato. Tono da amico che ti corregge."
+      - "Formato analogia: spiega il concetto con un paragone dalla vita quotidiana o dal calcio giocato."
+      - "Formato 'lo sapevi che': apri con un fatto sorprendente sul mondo delle scommesse."
+      - "Formato sfida: lancia una domanda al pubblico e dai la risposta in fondo. Coinvolgimento diretto."
     requires_data: []
     template: |
       💊 PILLOLA
@@ -343,8 +386,15 @@ formats:
     publish_time: "22:00"
     type: "regular"
     generate_image: false
+    temperature: 0.75
     description: "Recap settimanale: solo vincite complete e quasi-vincite (perse per un evento). Niente riepilogo percentuali o schedine completamente sbagliate. Tono emotivo."
-    requires_data: []
+    style_variants:
+      - "Tono celebrativo: se la settimana è andata bene, festeggia con energia. Trasmetti orgoglio."
+      - "Tono da bilancio onesto: racconta la settimana con equilibrio. Le cose belle e la sfortuna, senza drammi."
+      - "Struttura a momenti chiave: racconta la settimana come 2-3 momenti salienti, non come lista."
+      - "Chiudi con un'anticipazione forte sulla prossima settimana. La chiusura diventa un teaser."
+    requires_data:
+      - weekly_results
     template: |
       📊 IL FISCHIO FINALE
 
@@ -372,7 +422,12 @@ formats:
     publish_time: "14:00"
     type: "special"
     generate_image: true
+    temperature: 0.65
     description: "Multipla ad alta quota (Q.15+) su partite di cartello. Avviso esplicito sul rischio. Tono carico ma responsabile."
+    style_variants:
+      - "Tono epico: tratta la giocata come un evento storico. Linguaggio da grande occasione."
+      - "Tono calcolato: nonostante la quota alta, mostra che ogni selezione ha una logica precisa. Razionale ma carico."
+      - "Apertura con il valore della quota totale: parti dal numero e costruisci il ragionamento a ritroso."
     requires_data:
       - fixtures
       - odds
@@ -391,7 +446,12 @@ formats:
     publish_time: "14:00"
     type: "special"
     generate_image: false
+    temperature: 0.8
     description: "Contenuto speciale dedicato: pronostico ragionato sul derby. Tono emotivo e coinvolgente."
+    style_variants:
+      - "Tono da tifoso: lascia trasparire la passione e l'emozione del derby. Viscerale."
+      - "Tono da analista freddo del derby: in contrasto con l'emozione, vai lucido e chirurgico."
+      - "Racconta la storia recente del derby: gli ultimi scontri, i precedenti, l'atmosfera."
     requires_data: []
     template: |
       ⚔️ IL DERBY
@@ -406,8 +466,10 @@ formats:
     publish_time: "10:00"
     type: "special"
     generate_image: false
+    temperature: 0.75
     description: "Report mensile: solo le vittorie più belle e i momenti chiave del mese. Niente tabelle percentuali."
-    requires_data: []
+    requires_data:
+      - monthly_results
     template: |
       📊 REPORT MENSILE
 
@@ -421,7 +483,12 @@ formats:
     publish_time: "11:00"
     type: "regular"
     generate_image: false
+    temperature: 0.8
     description: "Link affiliato con promo/bonus del giorno. Call to action naturale, integrato nel tono del Capitano. Max 1 al giorno."
+    style_variants:
+      - "Integra la promo in un discorso più ampio: parla della giornata sportiva e inserisci il link come consiglio naturale."
+      - "Vai diretto sulla promo senza giri di parole. Onesto e trasparente."
+      - "Racconta una mini-esperienza personale con il bookmaker prima di dare il link."
     requires_data: []
     template: |
       🎁 PROMO DEL GIORNO
@@ -438,7 +505,15 @@ formats:
     publish_time: "09:30"
     type: "conversational"
     generate_image: false
+    temperature: 0.9
     description: "Messaggio conversazionale di apertura giornata. Nessun pronostico, nessuna schedina. Serve a coltivare il rapporto umano con la community: saluto, anticipazione su cosa arriva oggi, battuta, energia. Breve e naturale, come un messaggio vocale su WhatsApp."
+    style_variants:
+      - "Energia altissima: oggi sei carichissimo. Trasmetti adrenalina pura fin dal mattino."
+      - "Tono rilassato e pigro: oggi sei tranquillo, sveglia lenta. Messaggio chill."
+      - "Battuta o riferimento al calcio del giorno prima: commenta qualcosa che è successo ieri sera."
+      - "Misterioso: anticipa qualcosa senza dire cosa. 'Sto preparando una cosa...' — crea attesa."
+      - "Domanda alla community: chiedi qualcosa ai follower. Coinvolgili dal mattino."
+      - "Ultracorto: due righe massimo. Un saluto secco e via."
     requires_data:
       - fixtures
     template: |
@@ -461,8 +536,16 @@ formats:
     publish_time: "23:00"
     type: "conversational"
     generate_image: false
+    temperature: 0.9
     description: "Messaggio conversazionale di chiusura giornata. Nessun pronostico, nessuna schedina. Commento emotivo su come è andata la giornata: se si è vinto si festeggia, se si è perso si accetta con classe, si anticipa il giorno dopo. Breve e naturale."
-    requires_data: []
+    style_variants:
+      - "Tono festivo: se ci sono vincite, celebra alla grande. Euforia vera."
+      - "Tono riflessivo: chiudi con un pensiero più profondo sul percorso, la costanza, la disciplina."
+      - "Ultracorto: due righe secche. 'Notte squadra. Domani si torna.' — e basta."
+      - "Anticipa domani: parla poco di oggi e crea hype su quello che arriva domani."
+      - "Tono da spogliatoio post-partita: parla come a fine gara, con i ragazzi attorno."
+    requires_data:
+      - daily_results
     template: |
       {messaggio_conversazionale_serale}
     example_posts:

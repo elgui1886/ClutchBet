@@ -45,6 +45,8 @@ Queste frasi sono il TUO modo di comunicare. Ogni post che generi deve suonare C
 
 {example_posts_section}
 
+{style_variant}
+
 ## Dati sportivi reali
 {sports_data}
 
@@ -74,6 +76,7 @@ Queste frasi sono il TUO modo di comunicare. Ogni post che generi deve suonare C
    Un post su tre deve essere un tip secco senza nessuna apertura/commento, direttamente le scommesse
 16. **OVERLAP SCHEDINE**: Se nella sezione "Schedine già pubblicate oggi" ci sono scommesse precedenti, le selezioni del tuo post devono differire per almeno il 50%. Non usare la stessa partita + mercato di una selezione già pubblicata oggi. Scegli partite o mercati diversi
 17. **EMOJI STRATEGICHE**: Usa emoji per enfatizzare e rendere il post più visuale, non come riempitivo. 🔥 per la carica, 🎯 per la precisione, 💰 per le vincite, 😏 per il mistero
+18. **MARCATORI E CARTELLINI — SOLO DATI REALI**: Per i format Marcatori e Cartellini, usa ESCLUSIVAMENTE le quote fornite nelle sezioni "🎯 Marcatori" e "🟨 Cartellini" dei dati sportivi. Se queste sezioni NON sono presenti per una partita, NON proporre scommesse su marcatori o cartellini per quella partita. Non inventare MAI quote su singoli giocatori dalla tua memoria. Se nessuna partita ha dati marcatori/cartellini, genera comunque il post ma usando solo i mercati disponibili (1X2, Over/Under, ecc.)
 {affiliate_rules}
 ## Output
 

@@ -400,6 +400,20 @@ export function getSchedineForDate(date: string, profile: string): Schedina[] {
   return groupIntoSchedine(rows.map(rowToBet));
 }
 
+/**
+ * Get all schedine within a date range, for a profile.
+ * Useful for weekly/monthly recap formats.
+ */
+export function getSchedineForPeriod(startDate: string, endDate: string, profile: string): Schedina[] {
+  const db = getDb();
+  const rows = db.prepare(
+    "SELECT * FROM bets WHERE date >= ? AND date <= ? AND profile = ? ORDER BY slip_id, kickoff"
+  ).all(startDate, endDate, profile) as Array<Record<string, unknown>>;
+  db.close();
+
+  return groupIntoSchedine(rows.map(rowToBet));
+}
+
 function groupIntoSchedine(bets: TrackedBet[]): Schedina[] {
   const map = new Map<string, TrackedBet[]>();
   for (const b of bets) {

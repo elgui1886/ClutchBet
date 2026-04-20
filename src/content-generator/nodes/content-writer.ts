@@ -4,7 +4,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import { loadPrompt, buildSystemMessages } from "../../shared/llm-utils.js";
 import { renderBetSlipImage, type BetSlip } from "../../generation/image-renderer.js";
 import { generateBackground } from "../../generation/background-generator.js";
-import { profileSlugFromPath } from "../../shared/bet-tracker.js";
+import { profileSlugFromPath, getSchedineForDate, getSchedineForPeriod, getWeeklyStats, getStatsForPeriod, type Schedina } from "../../shared/bet-tracker.js";
 import { loadTopicHistory, saveTopicEntry } from "../../shared/content-history.js";
 import type {
   ContentStateType,
@@ -208,7 +208,7 @@ export async function generateSingleFormat(
 
   const model = new ChatOpenAI({
     modelName: process.env.OPENAI_MODEL ?? "gpt-4o",
-    temperature: 0.7,
+    temperature: format.temperature ?? 0.7,
     openAIApiKey: process.env.OPENAI_API_KEY,
     configuration: { baseURL: process.env.OPENAI_BASE_URL },
   });
@@ -228,29 +228,107 @@ export async function generateSingleFormat(
     ? loadTopicHistory(profileSlug, format.slug)
     : [];
 
-  const prompt = buildPrompt(template, profile, format, activeFixtures, pastTopics, alreadyPublishedBets);
-  const systemMessages = buildSystemMessages(profile);
-  const response = await model.invoke([...systemMessages, new HumanMessage(prompt)]);
-  const raw =
-    typeof response.content === "string"
-      ? response.content
-      : JSON.stringify(response.content);
+  // Fetch daily bet results for formats that need them (e.g. Chiusura)
+  const dailyResults = format.requires_data.includes("daily_results")
+    ? getSchedineForDate(new Date().toISOString().split("T")[0], profileSlug)
+    : undefined;
 
-  // Parse the unified JSON output (text + bets in a single LLM call)
-  let text: string;
-  let bets: BetSelection[] | undefined;
-  try {
-    const cleaned = raw.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-    const parsed = JSON.parse(cleaned) as { text: string; bets?: BetSelection[] };
-    text = parsed.text?.trim() ?? "";
-    if (hasBets(format) && Array.isArray(parsed.bets) && parsed.bets.length > 0) {
-      bets = parsed.bets;
-      console.log(`  📊 Found ${bets.length} bet(s): ${bets.map((b) => `${b.homeTeam}-${b.awayTeam} ${b.selection} @${b.odds}`).join(", ")}`);
+  // Fetch weekly results for recap formats (e.g. Il Fischio Finale)
+  let weeklyData: { schedine: Schedina[]; stats: ReturnType<typeof getWeeklyStats> } | undefined;
+  if (format.requires_data.includes("weekly_results")) {
+    const today = new Date().toISOString().split("T")[0];
+    const stats = getWeeklyStats(today, profileSlug);
+    const weekStart = new Date();
+    weekStart.setDate(weekStart.getDate() - 7);
+    const schedine = getSchedineForPeriod(weekStart.toISOString().split("T")[0], today, profileSlug);
+    weeklyData = { schedine, stats };
+    if (schedine.length > 0) {
+      console.log(`  📊 Weekly data: ${schedine.length} schedine, ${stats.won}W/${stats.lost}L`);
+    } else {
+      console.log(`  ⚠️  No weekly bet data found for recap`);
     }
-  } catch {
-    // Fallback: treat the entire response as plain text (no bets)
-    console.log(`  ⚠️  Could not parse JSON response. Treating as plain text.`);
-    text = raw.trim();
+  }
+
+  // Fetch monthly results for report formats (e.g. Report Mensile)
+  let monthlyData: { schedine: Schedina[]; stats: ReturnType<typeof getStatsForPeriod> } | undefined;
+  if (format.requires_data.includes("monthly_results")) {
+    const today = new Date();
+    const monthStart = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split("T")[0];
+    const todayStr = today.toISOString().split("T")[0];
+    const stats = getStatsForPeriod(monthStart, todayStr, profileSlug);
+    const schedine = getSchedineForPeriod(monthStart, todayStr, profileSlug);
+    monthlyData = { schedine, stats };
+    if (schedine.length > 0) {
+      console.log(`  📊 Monthly data: ${schedine.length} schedine, ${stats.won}W/${stats.lost}L`);
+    } else {
+      console.log(`  ⚠️  No monthly bet data found for report`);
+    }
+  }
+
+  const prompt = buildPrompt(template, profile, format, activeFixtures, pastTopics, alreadyPublishedBets, dailyResults, weeklyData, monthlyData);
+  const systemMessages = buildSystemMessages(profile);
+
+  const MAX_RETRIES = 2;
+  let text = "";
+  let bets: BetSelection[] | undefined;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    if (attempt > 0) {
+      console.log(`  🔄 Retry ${attempt}/${MAX_RETRIES}: regenerating due to bet validation errors...`);
+    }
+
+    const response = await model.invoke([...systemMessages, new HumanMessage(prompt)]);
+    const raw =
+      typeof response.content === "string"
+        ? response.content
+        : JSON.stringify(response.content);
+
+    // Parse the unified JSON output (text + bets in a single LLM call)
+    try {
+      const cleaned = raw.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+      const parsed = JSON.parse(cleaned) as { text: string; bets?: BetSelection[] };
+      text = parsed.text?.trim() ?? "";
+      if (hasBets(format) && Array.isArray(parsed.bets) && parsed.bets.length > 0) {
+        bets = parsed.bets;
+        console.log(`  📊 Found ${bets.length} bet(s): ${bets.map((b) => `${b.homeTeam}-${b.awayTeam} ${b.selection} @${b.odds}`).join(", ")}`);
+      }
+    } catch {
+      console.log(`  ⚠️  Could not parse JSON response. Treating as plain text.`);
+      text = raw.trim();
+      break; // no bets to validate
+    }
+
+    // Validate bets against real fixture data
+    if (bets && bets.length > 0 && activeFixtures.length > 0) {
+      const { valid: fixtureValid, correctedBets, errors } = validateBets(bets, activeFixtures);
+      if (errors.length > 0) {
+        console.log(`  ⚠️  Bet validation issues (attempt ${attempt + 1}):`);
+        for (const err of errors) console.log(`     - ${err}`);
+      }
+
+      // Check overlap with already-published bets (max 50% allowed)
+      const overlapResult = checkBetOverlap(correctedBets, alreadyPublishedBets);
+      if (overlapResult) {
+        console.log(`  ⚠️  ${overlapResult}`);
+      }
+
+      const allValid = fixtureValid && !overlapResult;
+
+      if (allValid || attempt === MAX_RETRIES) {
+        if (!allValid && attempt === MAX_RETRIES) {
+          console.log(`  🔧 Max retries reached. Applying programmatic corrections...`);
+        }
+        bets = correctedBets;
+        // Sync corrected odds back into the post text
+        if (!fixtureValid) {
+          text = syncOddsInText(text, bets);
+        }
+        break;
+      }
+      // else: retry generation
+    } else {
+      break; // no bets or no fixtures — nothing to validate
+    }
   }
 
   // Render bet-slip image
@@ -347,6 +425,9 @@ function buildPrompt(
   fixtures: Fixture[],
   pastTopics: Array<{ date: string; topic: string }> = [],
   alreadyPublishedBets?: BetSelection[],
+  dailyResults?: Schedina[],
+  weeklyData?: { schedine: Schedina[]; stats: ReturnType<typeof getWeeklyStats> },
+  monthlyData?: { schedine: Schedina[]; stats: ReturnType<typeof getStatsForPeriod> },
 ): string {
   const tonePrinciples = profile.tone.principles
     .map((p, i) => `${i + 1}. ${p}`)
@@ -364,7 +445,7 @@ function buildPrompt(
     .map((u) => `- **${u.name}**: ${u.role}`)
     .join("\n");
 
-  const sportsData = buildSportsData(format, fixtures, pastTopics);
+  const sportsData = buildSportsData(format, fixtures, pastTopics, dailyResults, weeklyData, monthlyData);
 
   const channelName =
     profile.profile.universe.find((u) =>
@@ -372,6 +453,9 @@ function buildPrompt(
     )?.name ?? profile.profile.name;
 
   const examplePostsSection = buildExamplePostsSection(format);
+
+  // Pick a random style variant for this generation (if configured)
+  const styleVariant = buildStyleVariantSection(format);
 
   // Build already-published bets section to enforce max 50% overlap
   let alreadyPublishedSection = "";
@@ -408,6 +492,7 @@ function buildPrompt(
     .replace("{format_description}", format.description)
     .replace("{format_template}", format.template)
     .replace("{example_posts_section}", examplePostsSection)
+    .replace("{style_variant}", styleVariant)
     .replace("{sports_data}", sportsData)
     .replace("{already_published_bets}", alreadyPublishedSection)
     .replace("{affiliate_rules}", affiliateRules);
@@ -423,6 +508,182 @@ function buildExamplePostsSection(format: FormatConfig): string {
     .join("\n\n");
 
   return `### Esempi di post REALI per questo format (IMITALI come stile, tono e struttura)\n\nQuesti sono post reali che hai scritto in passato. Il tuo nuovo post deve avere lo STESSO livello di personalità, lo STESSO modo di parlare, le STESSE scelte lessicali. Non copiarli parola per parola (i dati cambiano), ma il FEELING deve essere identico.\n\n${examples}`;
+}
+
+/**
+ * Picks a random style variant from the format config (if any) and returns
+ * a prompt section that gives the LLM a creative direction for this specific post.
+ * This prevents posts from crystallizing into the same patterns over time.
+ */
+function buildStyleVariantSection(format: FormatConfig): string {
+  if (!format.style_variants || format.style_variants.length === 0) {
+    return "";
+  }
+
+  const variant = format.style_variants[Math.floor(Math.random() * format.style_variants.length)];
+  console.log(`  🎨 Style variant: "${variant}"`);
+
+  return `## Direttiva stilistica per QUESTO post\n\n**IMPORTANTE**: per questo specifico post, segui questa indicazione creativa:\n\n> ${variant}\n\nQuesta direttiva ha la priorità sulle abitudini. Usala per dare un taglio diverso al post, pur restando coerente con il tuo tono e la tua personalità.`;
+}
+
+// ── Bet validation ───────────────────────────────────────────
+
+/** Maximum allowed deviation between LLM-returned odds and real odds. */
+const ODDS_TOLERANCE = 0.10; // 10%
+
+/** Fuzzy team name match for validation — handles abbreviations. */
+function teamsMatchFuzzy(a: string, b: string): boolean {
+  const al = a.toLowerCase().trim();
+  const bl = b.toLowerCase().trim();
+  return al === bl || al.includes(bl) || bl.includes(al);
+}
+
+/**
+ * Finds the best matching fixture for a bet, returning the fixture and
+ * the specific real odds value for the bet's selection type.
+ */
+function findMatchingFixture(
+  bet: BetSelection,
+  fixtures: Fixture[],
+): { fixture: Fixture; realOdds: number | undefined } | undefined {
+  const match = fixtures.find(
+    (f) =>
+      teamsMatchFuzzy(f.homeTeam, bet.homeTeam) &&
+      teamsMatchFuzzy(f.awayTeam, bet.awayTeam),
+  );
+  if (!match) return undefined;
+
+  let realOdds: number | undefined;
+  if (match.odds) {
+    const sel = bet.selection.toLowerCase().trim();
+    if (sel === "1" || sel === "home") realOdds = match.odds.home;
+    else if (sel === "x" || sel === "draw") realOdds = match.odds.draw;
+    else if (sel === "2" || sel === "away") realOdds = match.odds.away;
+    else if (sel.includes("over") && sel.includes("2.5")) realOdds = match.odds.over25;
+    else if (sel.includes("under") && sel.includes("2.5")) realOdds = match.odds.under25;
+    else if (sel === "goal" || sel === "btts" || sel.includes("goal sì")) realOdds = match.odds.btts_yes;
+    else if (sel === "nogol" || sel === "nogoal" || sel.includes("goal no")) realOdds = match.odds.btts_no;
+    // For selections we don't have real odds for (marcatori, cartellini, etc.), realOdds stays undefined
+  }
+
+  return { fixture: match, realOdds };
+}
+
+/**
+ * Validates bets against real fixture data.
+ * Returns corrected bets (with real odds where available) and a list of errors.
+ */
+function validateBets(
+  bets: BetSelection[],
+  fixtures: Fixture[],
+): { valid: boolean; correctedBets: BetSelection[]; errors: string[] } {
+  const errors: string[] = [];
+  const correctedBets: BetSelection[] = [];
+
+  for (const bet of bets) {
+    const result = findMatchingFixture(bet, fixtures);
+
+    if (!result) {
+      errors.push(
+        `Fixture not found: ${bet.homeTeam} vs ${bet.awayTeam} — LLM may have hallucinated this match`,
+      );
+      // Drop hallucinated fixture entirely
+      continue;
+    }
+
+    const corrected = { ...bet };
+
+    if (result.realOdds != null && result.realOdds > 0) {
+      const deviation = Math.abs(bet.odds - result.realOdds) / result.realOdds;
+      if (deviation > ODDS_TOLERANCE) {
+        errors.push(
+          `Odds mismatch: ${bet.homeTeam}-${bet.awayTeam} ${bet.selection} — ` +
+            `LLM: ${bet.odds}, real: ${result.realOdds} (${(deviation * 100).toFixed(0)}% off)`,
+        );
+        corrected.odds = result.realOdds;
+      }
+    }
+
+    correctedBets.push(corrected);
+  }
+
+  // If all bets were dropped (all hallucinated), that's invalid
+  const valid = errors.length === 0 && correctedBets.length > 0;
+  return { valid, correctedBets, errors };
+}
+
+/**
+ * Checks if the generated bets overlap more than 50% with already-published bets.
+ * Two bets are considered overlapping if they share the same match AND the same market.
+ *
+ * Returns an error message if overlap exceeds 50%, or null if OK.
+ */
+function checkBetOverlap(
+  newBets: BetSelection[],
+  publishedBets?: BetSelection[],
+): string | null {
+  if (!publishedBets || publishedBets.length === 0 || newBets.length === 0) {
+    return null;
+  }
+
+  let overlapping = 0;
+  for (const nb of newBets) {
+    const isDuplicate = publishedBets.some(
+      (pb) =>
+        teamsMatchFuzzy(pb.homeTeam, nb.homeTeam) &&
+        teamsMatchFuzzy(pb.awayTeam, nb.awayTeam) &&
+        pb.selection.toLowerCase().trim() === nb.selection.toLowerCase().trim(),
+    );
+    if (isDuplicate) overlapping++;
+  }
+
+  const overlapPct = overlapping / newBets.length;
+  if (overlapPct > 0.5) {
+    return (
+      `Overlap too high: ${overlapping}/${newBets.length} selections (${(overlapPct * 100).toFixed(0)}%) ` +
+      `duplicate already-published bets (max 50% allowed)`
+    );
+  }
+
+  return null;
+}
+
+/**
+ * Updates odds values in the post text to match the corrected bet odds.
+ * Searches for the old odds number near the team names and replaces it.
+ */
+function syncOddsInText(text: string, bets: BetSelection[]): string {
+  let result = text;
+  for (const bet of bets) {
+    // Find patterns like "@ 1.85" or "@1.85" near the bet context and replace
+    // We look for any decimal number after @ that we need to correct
+    // This is best-effort — handles the most common template patterns
+    const oddsFormatted = bet.odds % 1 === 0 ? bet.odds.toFixed(1) : String(bet.odds);
+    // Replace odds near team name context: find "@ <number>" patterns
+    const oddsPattern = new RegExp(
+      `(${escapeRegex(bet.homeTeam)}[\\s\\S]{0,200}?)@\\s*\\d+\\.\\d+`,
+      "i",
+    );
+    const match = result.match(oddsPattern);
+    if (match) {
+      result = result.replace(oddsPattern, `$1@ ${oddsFormatted}`);
+    }
+  }
+
+  // Recalculate total odds if present in text
+  if (bets.length > 0) {
+    const totalOdds = parseFloat(bets.reduce((acc, b) => acc * b.odds, 1).toFixed(2));
+    result = result.replace(
+      /([Qq]uota\s+totale[:\s]*)\d+[\.,]\d+/i,
+      `$1${totalOdds}`,
+    );
+  }
+
+  return result;
+}
+
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /** Formats a squad into a compact string grouped by role. */
@@ -450,10 +711,21 @@ function formatSquad(squad: SquadPlayer[]): string {
 function buildSportsData(
   format: FormatConfig,
   fixtures: Fixture[],
-  pastTopics: Array<{ date: string; topic: string }> = []
+  pastTopics: Array<{ date: string; topic: string }> = [],
+  dailyResults?: Schedina[],
+  weeklyData?: { schedine: Schedina[]; stats: ReturnType<typeof getWeeklyStats> },
+  monthlyData?: { schedine: Schedina[]; stats: ReturnType<typeof getStatsForPeriod> },
 ): string {
-  if (format.requires_data.length === 0) {
-    let base = "Nessun dato sportivo necessario per questo format. Genera contenuto originale basato sulla tua conoscenza del betting sportivo.";
+  // Append daily results summary if available
+  const dailyResultsSection = buildDailyResultsSection(dailyResults);
+
+  // Build weekly/monthly recap sections
+  const weeklySection = weeklyData ? buildWeeklyResultsSection(weeklyData.schedine, weeklyData.stats) : "";
+  const monthlySection = monthlyData ? buildMonthlyResultsSection(monthlyData.schedine, monthlyData.stats) : "";
+
+  if (format.requires_data.length === 0 || format.requires_data.every((d) => ["daily_results", "weekly_results", "monthly_results"].includes(d))) {
+    const dataSections = [dailyResultsSection, weeklySection, monthlySection].filter(Boolean).join("\n\n");
+    let base = dataSections || "Nessun dato sportivo necessario per questo format. Genera contenuto originale basato sulla tua conoscenza del betting sportivo.";
 
     if (pastTopics.length > 0) {
       const topicList = pastTopics
@@ -473,7 +745,15 @@ function buildSportsData(
 
   if (relevantFixtures.length === 0) {
     const sportName = isTennisFormat ? "tennis" : "calcio";
-    return `Nessuna partita di ${sportName} disponibile oggi. Genera contenuto basato sulle prossime partite in programma o su dati generali.`;
+    let noMatchMsg = `Nessuna partita di ${sportName} disponibile oggi. Genera contenuto basato sulle prossime partite in programma o su dati generali.`;
+    if (dailyResultsSection) noMatchMsg += "\n\n" + dailyResultsSection;
+    return noMatchMsg;
+  }
+
+  // Conversational formats (buongiorno, chiusura) get a lightweight summary
+  // instead of the full fixture dump with odds, squads, and multi-bet rules
+  if (format.type === "conversational") {
+    return buildConversationalSummary(relevantFixtures, fixtures, dailyResultsSection);
   }
 
   const lines: string[] = [];
@@ -515,6 +795,22 @@ function buildSportsData(
         if (o.bookmaker) {
           lines.push(`- Fonte quote: ${o.bookmaker}`);
         }
+        // Anytime scorer odds (from player props)
+        if (o.anytimeScorers && o.anytimeScorers.length > 0) {
+          const scorers = o.anytimeScorers
+            .slice(0, 6)
+            .map((s) => `${s.player} @ ${s.odds.toFixed(2)}`)
+            .join(", ");
+          lines.push(`- 🎯 Marcatori (segna almeno 1 gol): ${scorers}`);
+        }
+        // Player card odds (from player props)
+        if (o.playerCards && o.playerCards.length > 0) {
+          const cards = o.playerCards
+            .slice(0, 6)
+            .map((c) => `${c.player} @ ${c.odds.toFixed(2)}`)
+            .join(", ");
+          lines.push(`- 🟨 Cartellini (ammonizione): ${cards}`);
+        }
       }
       // Current squad / official lineup data for each team
       if (fixture.homeSquad && fixture.homeSquad.length > 0) {
@@ -551,6 +847,241 @@ function buildSportsData(
           "Cita giocatori ESCLUSIVAMENTE dai nomi elencati nelle sezioni 'Rosa attuale'. " +
           "NON usare giocatori dalla tua memoria — potrebbero essere stati ceduti o ritirati. " +
           "Se la rosa di una squadra non è disponibile, NON citare giocatori di quella squadra.")
+  );
+
+  let result = lines.join("\n");
+
+  // Append daily results if available (e.g. for conversational formats)
+  if (dailyResultsSection) {
+    result += "\n\n" + dailyResultsSection;
+  }
+
+  return result;
+}
+
+/**
+ * Builds a lightweight summary for conversational formats (buongiorno, chiusura).
+ * Includes: number of matches per competition, time range, and notable matches.
+ * No odds, no squads, no multi-bet rules.
+ */
+function buildConversationalSummary(
+  relevantFixtures: Fixture[],
+  allFixtures: Fixture[],
+  dailyResultsSection?: string,
+): string {
+  const lines: string[] = ["### Programma di oggi (sintesi)\n"];
+
+  // Group by competition
+  const byLeague = new Map<string, Fixture[]>();
+  for (const f of relevantFixtures) {
+    const group = byLeague.get(f.league) ?? [];
+    group.push(f);
+    byLeague.set(f.league, group);
+  }
+
+  for (const [league, matches] of byLeague) {
+    const times = matches.map((m) => m.time).sort();
+    const timeRange = times.length === 1
+      ? `ore ${times[0]}`
+      : `dalle ${times[0]} alle ${times[times.length - 1]}`;
+    lines.push(`- **${league}**: ${matches.length} partita/e (${timeRange})`);
+    // List the matches compactly
+    for (const m of matches) {
+      lines.push(`  • ${m.homeTeam} - ${m.awayTeam} (${m.time})`);
+    }
+  }
+
+  // Tennis matches if any
+  const tennis = allFixtures.filter((f) => f.sport === "tennis");
+  if (tennis.length > 0) {
+    lines.push(`- **Tennis**: ${tennis.length} match`);
+  }
+
+  lines.push("");
+  lines.push(
+    "> Usa queste info per dare colore al messaggio: anticipa le partite, " +
+      "cita le competizioni, i big match se ci sono. NON elencare tutte le partite — " +
+      "basta un riferimento naturale ('Stasera Champions', 'Serie A nel pomeriggio', ecc.)."
+  );
+
+  if (dailyResultsSection) {
+    lines.push("\n" + dailyResultsSection);
+  }
+
+  return lines.join("\n");
+}
+
+/**
+ * Builds a human-readable summary of today's bet results for the LLM.
+ * Used by conversational formats (Chiusura) to comment authentically on the day.
+ */
+function buildDailyResultsSection(schedine?: Schedina[]): string {
+  if (!schedine || schedine.length === 0) return "";
+
+  const vinte = schedine.filter((s) => s.status === "vinta");
+  const bruciate = schedine.filter((s) => s.status === "bruciata");
+  const inCorsa = schedine.filter((s) => s.status === "in_corsa");
+  const pending = schedine.filter((s) => s.status === "pending");
+
+  const lines: string[] = ["### Risultati scommesse di oggi\n"];
+  lines.push(`Schedine totali: ${schedine.length}`);
+  if (vinte.length > 0) lines.push(`✅ Vinte: ${vinte.length}`);
+  if (bruciate.length > 0) lines.push(`❌ Bruciate: ${bruciate.length}`);
+  if (inCorsa.length > 0) lines.push(`⏳ In corsa: ${inCorsa.length}`);
+  if (pending.length > 0) lines.push(`🕐 Non ancora giocate: ${pending.length}`);
+  lines.push("");
+
+  for (const s of schedine) {
+    const statusIcon = s.status === "vinta" ? "✅" : s.status === "bruciata" ? "❌" : s.status === "in_corsa" ? "⏳" : "🕐";
+    lines.push(`${statusIcon} **${s.formatName}** (quota ${s.totalOdds.toFixed(2)}) — ${s.status.toUpperCase()}`);
+    for (const b of s.bets) {
+      const betIcon = b.result === "won" ? "✅" : b.result === "lost" ? "❌" : "⏳";
+      const score = b.matchScore ? ` (${b.matchScore})` : "";
+      lines.push(`   ${betIcon} ${b.homeTeam} vs ${b.awayTeam}${score}: ${b.selection} @ ${b.odds}`);
+    }
+
+    // Highlight near-misses (lost by exactly 1 event)
+    if (s.status === "bruciata") {
+      const lostCount = s.bets.filter((b) => b.result === "lost").length;
+      if (lostCount === 1) {
+        const lostBet = s.bets.find((b) => b.result === "lost")!;
+        lines.push(`   💔 Persa per UN solo evento: ${lostBet.homeTeam} vs ${lostBet.awayTeam}`);
+      }
+    }
+    lines.push("");
+  }
+
+  lines.push(
+    "> Usa questi risultati per commentare la giornata in modo EMOTIVO e AUTENTICO. " +
+      "Se hai vinto, festeggia! Se hai perso per un evento, leva sulla sfortuna. " +
+      "Se hai perso più schedine, accetta con classe senza drammi. " +
+      "Se le partite non sono ancora finite, anticipa l'attesa. " +
+      "NON inventare risultati — usa SOLO quelli sopra."
+  );
+
+  return lines.join("\n");
+}
+
+/**
+ * Builds a section with weekly bet results for the Fischio Finale recap.
+ * Shows only wins and near-misses (lost by 1 event). No percentages.
+ */
+function buildWeeklyResultsSection(
+  schedine: Schedina[],
+  stats: ReturnType<typeof getWeeklyStats>,
+): string {
+  if (schedine.length === 0) {
+    return "### Risultati della settimana\n\nNessuna schedina questa settimana. Genera un recap leggero parlando della settimana in generale.";
+  }
+
+  const vinte = schedine.filter((s) => s.status === "vinta");
+  const nearMisses = schedine.filter(
+    (s) => s.status === "bruciata" && s.bets.filter((b) => b.result === "lost").length === 1,
+  );
+
+  const lines: string[] = ["### Risultati della settimana\n"];
+  lines.push(`Schedine totali: ${schedine.length}`);
+  lines.push(`Schedine vinte: ${vinte.length}`);
+  if (nearMisses.length > 0) lines.push(`Quasi-vincite (perse per 1 evento): ${nearMisses.length}`);
+  lines.push("");
+
+  // Show winning schedine
+  for (const s of vinte) {
+    lines.push(`✅ **${s.formatName}** (${s.date}) — VINTA! Quota ${s.totalOdds.toFixed(2)} 💰`);
+    for (const b of s.bets) {
+      const score = b.matchScore ? ` (${b.matchScore})` : "";
+      lines.push(`   ✅ ${b.homeTeam} vs ${b.awayTeam}${score}: ${b.selection} @ ${b.odds}`);
+    }
+    lines.push("");
+  }
+
+  // Show near-misses
+  for (const s of nearMisses) {
+    const lostBet = s.bets.find((b) => b.result === "lost")!;
+    lines.push(`😤 **${s.formatName}** (${s.date}) — Bruciata per UN evento! Quota ${s.totalOdds.toFixed(2)}`);
+    for (const b of s.bets) {
+      const betIcon = b.result === "won" ? "✅" : "❌";
+      const score = b.matchScore ? ` (${b.matchScore})` : "";
+      lines.push(`   ${betIcon} ${b.homeTeam} vs ${b.awayTeam}${score}: ${b.selection} @ ${b.odds}`);
+    }
+    lines.push(`   💔 Ci ha tradito: ${lostBet.homeTeam} vs ${lostBet.awayTeam}`);
+    lines.push("");
+  }
+
+  lines.push(
+    "> REGOLE PER IL RECAP SETTIMANALE:\n" +
+      "> - Racconta SOLO le vincite e le quasi-vincite (perse per 1 evento). Queste sono le storie del tuo recap.\n" +
+      "> - NON elencare percentuali di successo, ROI, o statistiche secche. Il tono è EMOTIVO, non contabile.\n" +
+      "> - Per le quasi-vincite, enfatizza la sfortuna con il tuo stile: 'ci ha tradito il pari al 92°'.\n" +
+      "> - NON menzionare le schedine completamente sbagliate.\n" +
+      "> - Se non ci sono vincite né quasi-vincite, accetta con classe e chiudi guardando avanti.\n" +
+      "> - NON inventare risultati o schedine — usa SOLO i dati sopra."
+  );
+
+  return lines.join("\n");
+}
+
+/**
+ * Builds a section with monthly bet results for the Report Mensile.
+ * Highlights the best wins and most dramatic near-misses. No percentages.
+ */
+function buildMonthlyResultsSection(
+  schedine: Schedina[],
+  stats: ReturnType<typeof getStatsForPeriod>,
+): string {
+  if (schedine.length === 0) {
+    return "### Risultati del mese\n\nNessuna schedina questo mese. Genera un report leggero parlando degli obiettivi per il mese prossimo.";
+  }
+
+  const vinte = schedine.filter((s) => s.status === "vinta");
+  const nearMisses = schedine.filter(
+    (s) => s.status === "bruciata" && s.bets.filter((b) => b.result === "lost").length === 1,
+  );
+
+  // Sort wins by total odds descending (biggest wins first)
+  vinte.sort((a, b) => b.totalOdds - a.totalOdds);
+
+  const lines: string[] = ["### Risultati del mese\n"];
+  lines.push(`Schedine totali: ${schedine.length}`);
+  lines.push(`Schedine vinte: ${vinte.length}`);
+  if (nearMisses.length > 0) lines.push(`Quasi-vincite: ${nearMisses.length}`);
+  lines.push("");
+
+  // Top 5 wins (best odds first)
+  const topWins = vinte.slice(0, 5);
+  if (topWins.length > 0) {
+    lines.push("#### 🏆 Le vincite migliori del mese\n");
+    for (const s of topWins) {
+      lines.push(`✅ **${s.formatName}** (${s.date}) — Quota ${s.totalOdds.toFixed(2)} 💰`);
+      for (const b of s.bets) {
+        const score = b.matchScore ? ` (${b.matchScore})` : "";
+        lines.push(`   ✅ ${b.homeTeam} vs ${b.awayTeam}${score}: ${b.selection} @ ${b.odds}`);
+      }
+      lines.push("");
+    }
+  }
+
+  // Top 3 near-misses (highest odds = most painful)
+  nearMisses.sort((a, b) => b.totalOdds - a.totalOdds);
+  const topNearMisses = nearMisses.slice(0, 3);
+  if (topNearMisses.length > 0) {
+    lines.push("#### 😤 Le più amare (perse per UN evento)\n");
+    for (const s of topNearMisses) {
+      const lostBet = s.bets.find((b) => b.result === "lost")!;
+      lines.push(`❌ **${s.formatName}** (${s.date}) — Quota ${s.totalOdds.toFixed(2)}`);
+      lines.push(`   💔 Traditi da: ${lostBet.homeTeam} vs ${lostBet.awayTeam} (${lostBet.selection})`);
+      lines.push("");
+    }
+  }
+
+  lines.push(
+    "> REGOLE PER IL REPORT MENSILE:\n" +
+      "> - Celebra le vincite più belle con entusiasmo. Racconta i momenti chiave.\n" +
+      "> - Le quasi-vincite sono storie di sfortuna: raccontale con ironia e classe.\n" +
+      "> - NON elencare percentuali, ROI, tabelle, o numeri freddi.\n" +
+      "> - Il tono è da bilancio emotivo del mese: cosa abbiamo vissuto insieme.\n" +
+      "> - Chiudi guardando al mese prossimo con carica e fiducia.\n" +
+      "> - NON inventare risultati — usa SOLO i dati sopra."
   );
 
   return lines.join("\n");

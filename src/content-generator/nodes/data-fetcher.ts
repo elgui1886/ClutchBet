@@ -199,9 +199,9 @@ async function fetchFromOddsApi(
       const response = await fetch(url.toString());
 
       if (!response.ok) {
-        // 404 or similar = competition not active/available, skip silently
+        // 404 or similar = competition not active/available
         if (response.status === 404 || response.status === 422) {
-          console.log(`   ℹ️  ${label}: not available (skipped)`);
+          console.log(`   ℹ️  ${label}: not available (HTTP ${response.status}, skipped)`);
           continue;
         }
         const body = await response.text().catch(() => "");
@@ -270,9 +270,9 @@ async function fetchFromFootballData(
       });
 
       if (!response.ok) {
-        // Free tier may not include all competitions — skip silently
+        // Free tier may not include all competitions
         if (response.status === 403 || response.status === 404) {
-          console.log(`   ℹ️  ${label}: not available on free tier (skipped)`);
+          console.log(`   ℹ️  ${label}: not available on free tier (HTTP ${response.status}, skipped)`);
           continue;
         }
         const body = await response.text().catch(() => "");
@@ -333,8 +333,8 @@ async function fetchTennisFromOddsApi(date: string): Promise<Fixture[]> {
         .filter((s) => s.active && TENNIS_SPORT_KEYS.includes(s.key))
         .map((s) => s.key);
     }
-  } catch {
-    // If listing fails, try known keys directly
+  } catch (err) {
+    console.log(`   ⚠️  Tennis sports listing failed: ${err}. Trying default sport keys.`);
     activeSportKeys = TENNIS_SPORT_KEYS.slice(0, 2);
   }
 
@@ -355,7 +355,10 @@ async function fetchTennisFromOddsApi(date: string): Promise<Fixture[]> {
       url.searchParams.set("oddsFormat", "decimal");
 
       const response = await fetch(url.toString());
-      if (!response.ok) continue;
+      if (!response.ok) {
+        console.log(`   ⚠️  Tennis ${sportKey}: HTTP ${response.status} (skipped)`);
+        continue;
+      }
 
       const events = (await response.json()) as OddsEvent[];
       const tournamentName = sportKey
@@ -392,7 +395,8 @@ async function fetchTennisFromOddsApi(date: string): Promise<Fixture[]> {
         });
 
       allFixtures.push(...fixtures);
-    } catch {
+    } catch (err) {
+      console.log(`   ⚠️  Tennis ${sportKey} fetch failed: ${err}`);
       continue;
     }
   }
@@ -579,10 +583,16 @@ async function enrichFixturesWithFDMatchIds(
       const response = await fetch(url.toString(), {
         headers: { "X-Auth-Token": apiKey },
       });
-      if (!response.ok) continue;
+      if (!response.ok) {
+        console.log(`   ⚠️  FD match ID fetch (${code}): HTTP ${response.status} (skipped)`);
+        continue;
+      }
 
       const data = (await response.json()) as FDMatchesResponse;
-      if (data.errorCode) continue;
+      if (data.errorCode) {
+        console.log(`   ⚠️  FD match ID fetch (${code}): API error ${data.errorCode} (skipped)`);
+        continue;
+      }
 
       for (const match of data.matches) {
         for (const fixture of footballFixtures) {
@@ -596,8 +606,8 @@ async function enrichFixturesWithFDMatchIds(
           }
         }
       }
-    } catch {
-      // non-critical — lineup check will fall back to squad data
+    } catch (err) {
+      console.log(`   ⚠️  FD match ID fetch (${code}) failed: ${err}`);
     }
   }
 
@@ -634,7 +644,10 @@ export async function fetchOfficialLineups(fixtures: Fixture[]): Promise<boolean
         `${FOOTBALL_DATA_BASE}/matches/${fixture.fdMatchId}`,
         { headers: { "X-Auth-Token": apiKey } },
       );
-      if (!response.ok) continue;
+      if (!response.ok) {
+        console.log(`   ⚠️  Lineup fetch for match ${fixture.fdMatchId} (${fixture.homeTeam}-${fixture.awayTeam}): HTTP ${response.status}`);
+        continue;
+      }
 
       const data = (await response.json()) as FDMatchSingle;
 
@@ -654,12 +667,118 @@ export async function fetchOfficialLineups(fixtures: Fixture[]): Promise<boolean
         fixture.hasOfficialLineup = true;
         anyFound = true;
       }
-    } catch {
+    } catch (err) {
+      console.log(`   ⚠️  Lineup fetch for match ${fixture.fdMatchId} (${fixture.homeTeam}-${fixture.awayTeam}) failed: ${err}`);
       continue;
     }
   }
 
   return anyFound;
+}
+
+// ── Player props (anytime scorer, cards) from The Odds API ───
+
+/** Player prop market types we fetch. */
+const PLAYER_PROP_MARKETS = "player_anytime_td,player_to_be_carded";
+
+/**
+ * Fetches player prop odds (anytime scorer, cards) for today's fixtures.
+ * Enriches fixtures in-place with anytimeScorers and playerCards data.
+ *
+ * NEVER invents data: if the API call fails, is unavailable, or returns
+ * no data, fixtures remain unchanged. Only real API data is used.
+ */
+async function enrichFixturesWithPlayerProps(
+  fixtures: Fixture[],
+  sportKeys: Array<{ key: string; label: string }>,
+  date: string,
+): Promise<void> {
+  const apiKey = process.env.THE_ODDS_API_KEY;
+  if (!apiKey) {
+    console.log(`   ℹ️  Player props: THE_ODDS_API_KEY not set. Skipping.`);
+    return;
+  }
+
+  const footballFixtures = fixtures.filter((f) => f.sport !== "tennis" && f.odds);
+  if (footballFixtures.length === 0) return;
+
+  console.log(`\n🎯 Fetching player props (scorers, cards) from The Odds API...`);
+
+  for (const { key: sportKey, label } of sportKeys) {
+    try {
+      const url = new URL(`${THE_ODDS_API_BASE}/sports/${sportKey}/odds`);
+      url.searchParams.set("apiKey", apiKey);
+      url.searchParams.set("regions", "eu");
+      url.searchParams.set("markets", PLAYER_PROP_MARKETS);
+      url.searchParams.set("dateFormat", "iso");
+      url.searchParams.set("oddsFormat", "decimal");
+
+      const response = await fetch(url.toString());
+
+      if (!response.ok) {
+        if (response.status === 404 || response.status === 422) {
+          // Player props not available for this competition — normal, not an error
+          continue;
+        }
+        if (response.status === 429) {
+          console.error(`   ❌ Player props (${label}): API rate limit reached. Skipping.`);
+          return; // stop all further requests
+        }
+        console.error(`   ❌ Player props (${label}): HTTP ${response.status}. Skipping.`);
+        continue;
+      }
+
+      const events = (await response.json()) as OddsEvent[];
+      let enriched = 0;
+
+      for (const event of events) {
+        const eventDate = utcToRomeDate(event.commence_time);
+        if (eventDate !== date) continue;
+
+        // Find the matching fixture
+        const fixture = footballFixtures.find(
+          (f) =>
+            teamsMatch(f.homeTeam, event.home_team) &&
+            teamsMatch(f.awayTeam, event.away_team),
+        );
+        if (!fixture || !fixture.odds) continue;
+
+        const bm = pickBookmaker(event.bookmakers);
+        if (!bm) continue;
+
+        // Extract anytime scorers
+        const scorerMarket = bm.markets.find((m) => m.key === "player_anytime_td");
+        if (scorerMarket && scorerMarket.outcomes.length > 0) {
+          fixture.odds.anytimeScorers = scorerMarket.outcomes
+            .filter((o) => o.price > 0)
+            .sort((a, b) => a.price - b.price) // lowest odds = most likely
+            .slice(0, 10) // top 10 most likely scorers
+            .map((o) => ({ player: o.name, odds: o.price }));
+        }
+
+        // Extract player cards
+        const cardsMarket = bm.markets.find((m) => m.key === "player_to_be_carded");
+        if (cardsMarket && cardsMarket.outcomes.length > 0) {
+          fixture.odds.playerCards = cardsMarket.outcomes
+            .filter((o) => o.price > 0)
+            .sort((a, b) => a.price - b.price)
+            .slice(0, 10)
+            .map((o) => ({ player: o.name, odds: o.price }));
+        }
+
+        if (fixture.odds.anytimeScorers || fixture.odds.playerCards) {
+          enriched++;
+        }
+      }
+
+      if (enriched > 0) {
+        console.log(`   ✅ ${label}: enriched ${enriched} fixture(s) with player props`);
+      }
+    } catch (err) {
+      console.error(`   ❌ Player props (${label}) fetch failed:`, err);
+      // Continue with other competitions — never invent data
+    }
+  }
 }
 
 /**
@@ -675,9 +794,13 @@ export async function fetchFixturesForDate(
 
   // Football
   let fixtures: Fixture[] | null = null;
-  try { fixtures = await fetchFromOddsApi(date, oddsApiComps); } catch {}
+  try { fixtures = await fetchFromOddsApi(date, oddsApiComps); } catch (err) {
+    console.error(`❌ fetchFixturesForDate: The Odds API failed:`, err);
+  }
   if (!fixtures) {
-    try { fixtures = await fetchFromFootballData(date, fdComps); } catch {}
+    try { fixtures = await fetchFromFootballData(date, fdComps); } catch (err) {
+      console.error(`❌ fetchFixturesForDate: football-data.org fallback failed:`, err);
+    }
   }
   if (fixtures) allFixtures.push(...fixtures);
 
@@ -685,7 +808,9 @@ export async function fetchFixturesForDate(
   try {
     const tennis = await fetchTennisFromOddsApi(date);
     allFixtures.push(...tennis);
-  } catch {}
+  } catch (err) {
+    console.error(`❌ fetchFixturesForDate: tennis fetch failed:`, err);
+  }
 
   // Enrich with squad data
   await enrichFixturesWithSquads(allFixtures, fdComps);
@@ -693,6 +818,11 @@ export async function fetchFixturesForDate(
   // Enrich with FD match IDs for official lineup support
   const today = new Date().toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
   await enrichFixturesWithFDMatchIds(allFixtures, fdComps ?? DEFAULT_FD_COMPETITIONS, today);
+
+  // Enrich with player props (scorers, cards)
+  if (oddsApiComps && allFixtures.some((f) => f.sport !== "tennis" && f.odds)) {
+    await enrichFixturesWithPlayerProps(allFixtures, oddsApiComps, date);
+  }
 
   return allFixtures;
 }
@@ -826,6 +956,14 @@ export async function dataFetcherNode(
 
   // ── Enrich with FD match IDs for official lineup support ──
   await enrichFixturesWithFDMatchIds(allFixtures, fdComps, date);
+
+  // ── Enrich with player props (scorers, cards) if any format needs them ──
+  const needsPlayerProps = formatsRequiringData.some((f) =>
+    f.requires_data.some((d) => ["player_cards", "odds"].includes(d))
+  );
+  if (needsPlayerProps && footballFixtures.length > 0) {
+    await enrichFixturesWithPlayerProps(allFixtures, oddsComps, date);
+  }
 
   return { fixtures: allFixtures, scheduledFormats: updatedFormats };
 }

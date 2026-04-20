@@ -10,6 +10,9 @@ export interface FixtureOdds {
   btts_yes?: number;  // Goal (both teams to score)
   btts_no?: number;   // NoGoal
   bookmaker?: string; // Source bookmaker name
+  // Player props (from The Odds API player_props markets)
+  anytimeScorers?: Array<{ player: string; odds: number }>;  // Anytime goalscorer
+  playerCards?: Array<{ player: string; odds: number }>;      // Player to be carded
 }
 
 /** A player in a team squad */
@@ -57,6 +60,8 @@ export interface FormatConfig {
   publish_time?: string;  // HH:MM — preferred publish time (e.g. "14:00")
   publish_before_match?: number; // Minutes before earliest kickoff to publish (for lineup-dependent formats)
   example_posts?: string[];  // Concrete example posts to guide LLM style
+  temperature?: number;  // LLM temperature override (default: 0.7). Lower = more deterministic, higher = more creative
+  style_variants?: string[];  // Random stylistic directives picked each generation to prevent repetitive patterns
 }
 
 /** The full parsed YAML profile */
