@@ -202,6 +202,7 @@ export async function generateSingleFormat(
   profile: ProfileConfig,
   profilePath: string,
   fixtures: Fixture[],
+  alreadyPublishedBets?: BetSelection[],
 ): Promise<{ text: string; imageBase64?: string; bets?: BetSelection[] }> {
   const profileSlug = profileSlugFromPath(profilePath);
 
@@ -227,7 +228,7 @@ export async function generateSingleFormat(
     ? loadTopicHistory(profileSlug, format.slug)
     : [];
 
-  const prompt = buildPrompt(template, profile, format, activeFixtures, pastTopics);
+  const prompt = buildPrompt(template, profile, format, activeFixtures, pastTopics, alreadyPublishedBets);
   const response = await model.invoke([new HumanMessage(prompt)]);
   const raw =
     typeof response.content === "string"
@@ -270,7 +271,7 @@ export async function generateSingleFormat(
       };
 
       let backgroundBase64: string | undefined;
-      if (profile.branding) {
+      if (profile.branding && process.env.AI_IMAGE_ENABLED !== "false") {
         try {
           backgroundBase64 = await generateBackground(
             profile.branding,
@@ -279,6 +280,8 @@ export async function generateSingleFormat(
         } catch (bgErr) {
           console.log(`  ⚠️  AI background generation failed: ${bgErr}. Using plain background.`);
         }
+      } else if (profile.branding) {
+        console.log(`  ℹ️  AI image generation disabled (AI_IMAGE_ENABLED=false). Using plain background.`);
       }
 
       const imageBuffer = await renderBetSlipImage(
@@ -341,7 +344,8 @@ function buildPrompt(
   profile: ProfileConfig,
   format: FormatConfig,
   fixtures: Fixture[],
-  pastTopics: Array<{ date: string; topic: string }> = []
+  pastTopics: Array<{ date: string; topic: string }> = [],
+  alreadyPublishedBets?: BetSelection[],
 ): string {
   const tonePrinciples = profile.tone.principles
     .map((p, i) => `${i + 1}. ${p}`)
@@ -368,6 +372,19 @@ function buildPrompt(
 
   const examplePostsSection = buildExamplePostsSection(format);
 
+  // Build already-published bets section to enforce max 50% overlap
+  let alreadyPublishedSection = "";
+  if (alreadyPublishedBets && alreadyPublishedBets.length > 0) {
+    const lines = alreadyPublishedBets.map(
+      (b) => `- ${b.homeTeam} vs ${b.awayTeam} → ${b.selection} @ ${b.odds}`
+    );
+    alreadyPublishedSection =
+      `## Schedine già pubblicate oggi\n\n` +
+      `Le seguenti selezioni sono già state pubblicate in altri post oggi. ` +
+      `Rispetta la regola 16: massimo il 50% delle tue selezioni può coincidere con quelle sotto.\n\n` +
+      lines.join("\n");
+  }
+
   // Build affiliate rules if the format is "promo-del-giorno" and config has affiliate info
   const affiliateConfig = profile.config?.affiliate;
   let affiliateRules = "";
@@ -391,6 +408,7 @@ function buildPrompt(
     .replace("{format_template}", format.template)
     .replace("{example_posts_section}", examplePostsSection)
     .replace("{sports_data}", sportsData)
+    .replace("{already_published_bets}", alreadyPublishedSection)
     .replace("{affiliate_rules}", affiliateRules);
 }
 

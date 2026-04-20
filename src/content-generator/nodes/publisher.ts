@@ -10,7 +10,7 @@ import {
 } from "../../shared/content-store.js";
 import { generateSingleFormat } from "./content-writer.js";
 import { fetchOfficialLineups } from "./data-fetcher.js";
-import type { ContentStateType, ContentItem, Fixture } from "../state.js";
+import type { ContentStateType, ContentItem, Fixture, BetSelection } from "../state.js";
 
 const MAX_CAPTION = 1024;
 
@@ -81,6 +81,9 @@ export async function publisherNode(
     const peer = resolvePeer(publishChannel);
     const results: string[] = [];
 
+    // Accumulates bets from formats published earlier in the day — used to enforce max 50% overlap
+    const publishedBetsToday: BetSelection[] = [];
+
     for (const item of sorted) {
       // Wait for the scheduled time if set
       if (item.publishTime) {
@@ -118,6 +121,7 @@ export async function publisherNode(
               profile!,
               profilePath,
               fixtures,
+              publishedBetsToday.length > 0 ? publishedBetsToday : undefined,
             );
             item.text = generated.text;
             item.imageBase64 = generated.imageBase64;
@@ -161,6 +165,8 @@ export async function publisherNode(
         // Track bets for result checking
         if (item.bets && item.bets.length > 0) {
           trackPublishedBets(item, profileSlug);
+          // Add to today's accumulator so subsequent formats avoid >50% overlap
+          publishedBetsToday.push(...item.bets);
         }
       } catch (err) {
         results.push(`❌ ${item.formatName}: ${err}`);

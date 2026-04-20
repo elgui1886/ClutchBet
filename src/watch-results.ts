@@ -347,7 +347,7 @@ async function publishUpdate(
         };
 
         let backgroundBase64: string | undefined;
-        if (profile.branding) {
+        if (profile.branding && process.env.AI_IMAGE_ENABLED !== "false") {
           try {
             backgroundBase64 = await generateBackground(
               profile.branding,
@@ -356,6 +356,8 @@ async function publishUpdate(
           } catch (bgErr) {
             console.log(`  ⚠️  AI background generation failed: ${bgErr}. Using plain background.`);
           }
+        } else if (profile.branding) {
+          console.log(`  ℹ️  AI image generation disabled (AI_IMAGE_ENABLED=false). Using plain background.`);
         }
 
         const imageBuffer = await renderBetSlipImage(
