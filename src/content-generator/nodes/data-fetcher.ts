@@ -94,6 +94,50 @@ interface FDMatchSingle {
   awayTeam: { lineup: FDLineupPlayer[]; bench: FDLineupPlayer[] };
 }
 
+// ── Team name normalization ──────────────────────────────────
+
+/**
+ * Maps common verbose/English team names to their short Italian equivalents.
+ * Applied to every fixture coming from APIs so all downstream code
+ * (prompts, posts, bet tracking) uses natural Italian names.
+ */
+const TEAM_NAME_ALIASES: Record<string, string> = {
+  "inter milan": "Inter",
+  "internazionale": "Inter",
+  "fc internazionale milano": "Inter",
+  "ac milan": "Milan",
+  "ssc napoli": "Napoli",
+  "juventus fc": "Juventus",
+  "as roma": "Roma",
+  "ss lazio": "Lazio",
+  "atalanta bc": "Atalanta",
+  "acf fiorentina": "Fiorentina",
+  "torino fc": "Torino",
+  "bologna fc 1909": "Bologna",
+  "bologna fc": "Bologna",
+  "us sassuolo calcio": "Sassuolo",
+  "us sassuolo": "Sassuolo",
+  "udinese calcio": "Udinese",
+  "hellas verona fc": "Hellas Verona",
+  "hellas verona": "Hellas Verona",
+  "us lecce": "Lecce",
+  "cagliari calcio": "Cagliari",
+  "genoa cfc": "Genoa",
+  "empoli fc": "Empoli",
+  "us salernitana 1919": "Salernitana",
+  "frosinone calcio": "Frosinone",
+  "como 1907": "Como",
+  "parma calcio 1913": "Parma",
+  "venezia fc": "Venezia",
+  "ac monza": "Monza",
+};
+
+/** Normalizes a team name using the alias map. Returns the short name or the original. */
+function normalizeTeamName(name: string): string {
+  const lower = name.toLowerCase().trim();
+  return TEAM_NAME_ALIASES[lower] ?? name;
+}
+
 // ── Helpers ──────────────────────────────────────────────────
 
 /** Current time in Europe/Rome as minutes since midnight. */
@@ -225,8 +269,8 @@ async function fetchFromOddsApi(
           return eventDate === date && isNotStarted(eventTime);
         })
         .map((e) => ({
-          homeTeam: e.home_team,
-          awayTeam: e.away_team,
+          homeTeam: normalizeTeamName(e.home_team),
+          awayTeam: normalizeTeamName(e.away_team),
           league: label,
           date,
           time: utcToRomeTime(e.commence_time),
@@ -290,8 +334,8 @@ async function fetchFromFootballData(
       const fixtures = data.matches
         .filter((m) => ["SCHEDULED", "TIMED"].includes(m.status))
         .map((m) => ({
-          homeTeam: m.homeTeam.name,
-          awayTeam: m.awayTeam.name,
+          homeTeam: normalizeTeamName(m.homeTeam.name),
+          awayTeam: normalizeTeamName(m.awayTeam.name),
           league: label,
           date,
           time: utcToRomeTime(m.utcDate),
@@ -384,8 +428,8 @@ async function fetchTennisFromOddsApi(date: string): Promise<Fixture[]> {
             : undefined;
 
           return {
-            homeTeam: e.home_team,
-            awayTeam: e.away_team,
+            homeTeam: normalizeTeamName(e.home_team),
+            awayTeam: normalizeTeamName(e.away_team),
             league: tournamentName,
             date,
             time: utcToRomeTime(e.commence_time),

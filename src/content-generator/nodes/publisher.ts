@@ -102,9 +102,36 @@ export async function publisherNode(
 
           console.log(`\n  🔄 Generating content just-in-time for: ${item.formatName}...`);
           try {
+            // Check minimum fixtures requirement (e.g. combo needs >= 2 matches)
+            if (format.min_fixtures && format.min_fixtures > 0) {
+              const footballFixtures = fixtures.filter((f) => f.sport !== "tennis");
+              // Only count fixtures that haven't started yet
+              const activeFootball = footballFixtures.filter((f) => {
+                const [h, m] = f.time.split(":").map(Number);
+                const now = new Date();
+                const romeNow = new Intl.DateTimeFormat("en-GB", {
+                  timeZone: "Europe/Rome",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                  hour12: false,
+                }).formatToParts(now);
+                const nowH = Number(romeNow.find((p) => p.type === "hour")!.value);
+                const nowM = Number(romeNow.find((p) => p.type === "minute")!.value);
+                return h * 60 + m > nowH * 60 + nowM;
+              });
+              if (activeFootball.length < format.min_fixtures) {
+                console.log(
+                  `  ⏭️  ${item.formatName}: skipped — only ${activeFootball.length} active fixture(s), ` +
+                  `minimum ${format.min_fixtures} required.`
+                );
+                results.push(`⏭️ ${item.formatName}: skipped — not enough fixtures (${activeFootball.length}/${format.min_fixtures})`);
+                continue;
+              }
+            }
+
             // For lineup-dependent formats, wait for official lineups before generating.
             // Publishing with squad data (not confirmed starters) risks citing non-playing players.
-            if (format.publish_before_match) {
+            if (format.requires_lineups) {
               const lineupStatus = await waitForOfficialLineups(fixtures, item.formatName);
               if (lineupStatus === "timeout") {
                 console.log(`  ⏭️  ${item.formatName}: skipped — official lineups not released in time.`);
@@ -112,7 +139,9 @@ export async function publisherNode(
                 continue;
               }
               if (lineupStatus === "unavailable") {
-                console.log(`  ⚠️  ${item.formatName}: proceeding with squad data (FD lineup check unavailable).`);
+                console.log(`  ⏭️  ${item.formatName}: skipped — cannot obtain official lineups (no FD match IDs or API key). Cannot publish ${format.slug} without confirmed starters.`);
+                results.push(`⏭️ ${item.formatName}: skipped — lineup data unavailable`);
+                continue;
               }
             }
 
@@ -126,6 +155,20 @@ export async function publisherNode(
             item.text = generated.text;
             item.imageBase64 = generated.imageBase64;
             item.bets = generated.bets;
+
+            // Post-generation check: if bets fell below min_fixtures (e.g. after
+            // contradiction drops), skip this format entirely
+            if (format.min_fixtures && format.min_fixtures > 0) {
+              const betCount = item.bets?.length ?? 0;
+              if (betCount < format.min_fixtures) {
+                console.log(
+                  `  ⏭️  ${item.formatName}: skipped — only ${betCount} valid bet(s) after validation, ` +
+                  `minimum ${format.min_fixtures} required.`
+                );
+                results.push(`⏭️ ${item.formatName}: skipped — not enough valid bets (${betCount}/${format.min_fixtures})`);
+                continue;
+              }
+            }
 
             // Update the DB record with generated content
             updateContentGenerated(

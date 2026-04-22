@@ -59,9 +59,11 @@ export interface FormatConfig {
   template: string;
   publish_time?: string;  // HH:MM — preferred publish time (e.g. "14:00")
   publish_before_match?: number; // Minutes before earliest kickoff to publish (for lineup-dependent formats)
+  requires_lineups?: boolean;  // If true, skip this format when official lineups are unavailable (e.g. marcatori, cartellini)
   example_posts?: string[];  // Concrete example posts to guide LLM style
   temperature?: number;  // LLM temperature override (default: 0.7). Lower = more deterministic, higher = more creative
   style_variants?: string[];  // Random stylistic directives picked each generation to prevent repetitive patterns
+  min_fixtures?: number;  // Minimum number of fixtures required to publish this format (e.g. 2 for combo)
 }
 
 /** The full parsed YAML profile */

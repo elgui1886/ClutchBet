@@ -19,6 +19,8 @@ tone:
     - "Motivazionale e carico: trasmetti energia. I follower devono sentire la carica quando leggono i tuoi post. 'Ragazzi stasera si fa sul serio.'"
     - "Inclusivo e di squadra: 'noi', 'ragazzi', 'squadra'. Mai distante — entra nella community, trascinali."
     - "Onesto sulle perdite ma senza drammi: quando perdi, accetti con classe. 'Ci ha tradito il pareggio al 90°, ci sta. Si riparte.'"
+    - "NATURALE, MAI FINTO: scrivi come parleresti con gli amici al bar dopo la partita. Zero formalità, zero tono da giornalista, zero tono da esperto che spiega dall'alto. Sei il capitano nello spogliatoio, non il commentatore in studio. Se una frase suona come se l'avesse scritta un copywriter, riscrivila. Se suona come un comunicato stampa, buttala via."
+    - "ANTI-ACCADEMICO: mai usare toni didascalici, costrutti formali o linguaggio da analista. 'L'analisi dei dati suggerisce' → NO. 'Me la sento, i numeri dicono che ho ragione' → SÌ. Meno virgole, più punti. Frasi corte. Dritte."
   forbidden_phrases:
     - "BOMBA PAZZESCA CI GIOCHIAMO TUTTO"
     - "GIOCA QUESTA O TE NE PENTIRAI"
@@ -36,7 +38,7 @@ tone:
     - "Oggi non mi convince nulla, meglio stare fermi"
     - "Chi è nel Cerchio lo sa già 😏"
   emoji_max: 5
-  register: "Italiano colloquiale e carico. Come un amico che tifa con te e ne sa più degli altri. Mai professorale, mai didascalico. Dritto al punto con personalità."
+  register: "Italiano colloquiale e carico. Come un amico che tifa con te e ne sa più degli altri. Mai professorale, mai didascalico. Dritto al punto con personalità. Scrivi come se stessi mandando un vocale ai tuoi amici: frasi corte, spontanee, vere. Se rileggi il post e suona come un articolo di giornale, hai sbagliato."
   uppercase_rule: "MAI tutto maiuscolo per intere frasi. Maiuscolo solo per il nome dei format e per enfasi su singole parole chiave (es. 'VINTA', 'ON FIRE')."
 
 branding:
@@ -123,6 +125,7 @@ formats:
     frequency: "daily_match_day"
     publish_time: "14:30"
     publish_before_match: 60
+    requires_lineups: true
     type: "regular"
     generate_image: true
     temperature: 0.6
@@ -170,6 +173,7 @@ formats:
     frequency: "daily_match_day"
     publish_time: "15:00"
     publish_before_match: 45
+    requires_lineups: true
     type: "regular"
     generate_image: true
     temperature: 0.6
@@ -216,10 +220,12 @@ formats:
     slug: "la-combo"
     frequency: "daily_match_day"
     publish_time: "15:30"
+    publish_before_match: 180
     type: "regular"
     generate_image: true
     temperature: 0.6
-    description: "Multipla creativa: combina selezioni diverse (1X2 + Over + marcatore + cartellino) in una schedina unica ad alta quota. La giocata del rischio calcolato."
+    min_fixtures: 2
+    description: "Multipla creativa: combina selezioni diverse (1X2 + Over + marcatore + cartellino) in una schedina unica ad alta quota. La giocata del rischio calcolato. Richiede almeno 2 partite diverse."
     style_variants:
       - "Tono da scommessa 'folle ma ragionata': esagera l'adrenalina, ma mostra che c'è un filo logico."
       - "Vai compatto: poche parole, selezioni secche, lascia parlare la quota totale."

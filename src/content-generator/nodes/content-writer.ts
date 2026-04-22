@@ -128,6 +128,13 @@ export async function contentWriterNode(
     return f && hasBets(f) && !f.publish_before_match;
   });
 
+  // Count late formats (publish_before_match) to stagger them
+  const lateFormats = scheduledFormats.filter((s) => {
+    const f = profile.formats.find((fmt) => fmt.slug === s);
+    return f && f.publish_before_match;
+  });
+  let lateFormatIndex = 0;
+
   const totalEarlyBets = earlyBetFormats.length;
 
   for (const slug of scheduledFormats) {
@@ -142,8 +149,11 @@ export async function contentWriterNode(
 
     if (format.publish_before_match && fixtures.length > 0) {
       // Late-generation format: publish N minutes before earliest kickoff
-      publishTime = computeBeforeMatchTime(fixtures, format.publish_before_match);
-      console.log(`  ⏰ ${format.name}: ${publishTime ?? "now"} (${format.publish_before_match} min before match)`);
+      // Stagger multiple late formats 15 minutes apart
+      const staggerMinutes = lateFormatIndex * 15;
+      publishTime = computeBeforeMatchTime(fixtures, format.publish_before_match - staggerMinutes);
+      lateFormatIndex++;
+      console.log(`  ⏰ ${format.name}: ${publishTime ?? "now"} (${format.publish_before_match}min before match, stagger +${staggerMinutes}min)`);
     } else if (hasBets(format) && fixtures.length > 0) {
       // Early bet format: spread from 12:00 to 1h before kickoff
       publishTime = computeDynamicPublishTime(undefined, fixtures, earlyBetIndex, totalEarlyBets);
@@ -268,7 +278,7 @@ export async function generateSingleFormat(
   const prompt = buildPrompt(template, profile, format, activeFixtures, pastTopics, alreadyPublishedBets, dailyResults, weeklyData, monthlyData);
   const systemMessages = buildSystemMessages(profile);
 
-  const MAX_RETRIES = 2;
+  const MAX_RETRIES = 5;
   let text = "";
   let bets: BetSelection[] | undefined;
 
@@ -312,13 +322,31 @@ export async function generateSingleFormat(
         console.log(`  ⚠️  ${overlapResult}`);
       }
 
-      const allValid = fixtureValid && !overlapResult;
+      // Check contradictions with already-published bets
+      const contradictions = findContradictions(correctedBets, alreadyPublishedBets);
+      if (contradictions.length > 0) {
+        console.log(`  ⚠️  Contradictions with previous bets (attempt ${attempt + 1}):`);
+        for (const c of contradictions) console.log(`     - ${c}`);
+      }
 
-      if (allValid || attempt === MAX_RETRIES) {
-        if (!allValid && attempt === MAX_RETRIES) {
-          console.log(`  🔧 Max retries reached. Applying programmatic corrections...`);
-        }
+      const allValid = fixtureValid && !overlapResult && contradictions.length === 0;
+
+      if (allValid) {
         bets = correctedBets;
+        break;
+      }
+
+      if (attempt === MAX_RETRIES) {
+        console.log(`  🔧 Max retries (${MAX_RETRIES}) reached. Applying programmatic corrections...`);
+        bets = correctedBets;
+
+        // Drop contradicting bets after all retries exhausted
+        if (contradictions.length > 0 && alreadyPublishedBets) {
+          const beforeCount = bets.length;
+          bets = removeContradictingBets(bets, alreadyPublishedBets);
+          console.log(`  🔧 Dropped ${beforeCount - bets.length} contradicting bet(s). Remaining: ${bets.length}`);
+        }
+
         // Sync corrected odds back into the post text
         if (!fixtureValid) {
           text = syncOddsInText(text, bets);
@@ -467,6 +495,10 @@ function buildPrompt(
       `## Schedine già pubblicate oggi\n\n` +
       `Le seguenti selezioni sono già state pubblicate in altri post oggi. ` +
       `Rispetta la regola 16: massimo il 50% delle tue selezioni può coincidere con quelle sotto.\n\n` +
+      `**REGOLA ANTI-CONTRADDIZIONE (CRITICA)**: Per le partite già presenti sotto, NON puoi MAI proporre un esito diverso sullo stesso mercato. ` +
+      `Se hai già detto "1" (vittoria casa) per una partita, NON puoi dire "X" (pareggio) o "2" (vittoria trasferta) nella stessa partita. ` +
+      `Puoi usare la stessa partita con un mercato DIVERSO (es. Over 2.5, Goal, marcatore) ma MAI contraddire l'esito 1X2 già pubblicato. ` +
+      `Contraddirsi è INACCETTABILE: i nostri follower vedono tutti i post.\n\n` +
       lines.join("\n");
   }
 
@@ -646,6 +678,110 @@ function checkBetOverlap(
   }
 
   return null;
+}
+
+/**
+ * Determines the "direction" market group of a selection.
+ * Selections within the same group are mutually exclusive (contradictory).
+ *
+ * Groups:
+ * - "result": 1, X, 2 (match outcome — these contradict each other)
+ * - null: different market types (over/under, goal/nogoal, scorers, cards)
+ *         which don't contradict a result bet
+ */
+function getMarketGroup(selection: string): string | null {
+  const sel = selection.toLowerCase().trim();
+  if (sel === "1" || sel === "home" || sel === "x" || sel === "draw" || sel === "2" || sel === "away") {
+    return "result";
+  }
+  return null;
+}
+
+/**
+ * Returns the normalized direction within a market group.
+ * E.g. "1"/"home" → "1", "x"/"draw" → "x", "2"/"away" → "2"
+ */
+function normalizeSelection(selection: string): string {
+  const sel = selection.toLowerCase().trim();
+  if (sel === "1" || sel === "home") return "1";
+  if (sel === "x" || sel === "draw") return "x";
+  if (sel === "2" || sel === "away") return "2";
+  return sel;
+}
+
+/**
+ * Finds bets that contradict already-published bets.
+ * A contradiction is when the SAME match has conflicting result selections
+ * (e.g. "1" vs "X" or "1" vs "2"). Different market types (Over/Under,
+ * Goal/NoGoal, marcatori) are NOT contradictions.
+ *
+ * Returns a list of human-readable error messages.
+ */
+function findContradictions(
+  newBets: BetSelection[],
+  publishedBets?: BetSelection[],
+): string[] {
+  if (!publishedBets || publishedBets.length === 0 || newBets.length === 0) {
+    return [];
+  }
+
+  const errors: string[] = [];
+  for (const nb of newBets) {
+    const nbGroup = getMarketGroup(nb.selection);
+    if (!nbGroup) continue; // non-result markets can't contradict
+
+    const nbNorm = normalizeSelection(nb.selection);
+
+    for (const pb of publishedBets) {
+      const pbGroup = getMarketGroup(pb.selection);
+      if (pbGroup !== nbGroup) continue; // different market types
+
+      // Same match?
+      if (
+        teamsMatchFuzzy(pb.homeTeam, nb.homeTeam) &&
+        teamsMatchFuzzy(pb.awayTeam, nb.awayTeam)
+      ) {
+        const pbNorm = normalizeSelection(pb.selection);
+        if (pbNorm !== nbNorm) {
+          errors.push(
+            `CONTRADDIZIONE: ${nb.homeTeam}-${nb.awayTeam} → ` +
+            `pubblicato "${pb.selection}" ma ora proposto "${nb.selection}". ` +
+            `Non ci si può contraddire sulla stessa partita.`
+          );
+        }
+      }
+    }
+  }
+
+  return errors;
+}
+
+/**
+ * Removes bets that contradict already-published bets.
+ * Used as last resort after MAX_RETRIES failed.
+ */
+function removeContradictingBets(
+  bets: BetSelection[],
+  publishedBets: BetSelection[],
+): BetSelection[] {
+  return bets.filter((nb) => {
+    const nbGroup = getMarketGroup(nb.selection);
+    if (!nbGroup) return true; // keep non-result bets
+
+    const nbNorm = normalizeSelection(nb.selection);
+
+    const contradicts = publishedBets.some((pb) => {
+      const pbGroup = getMarketGroup(pb.selection);
+      if (pbGroup !== nbGroup) return false;
+      if (
+        !teamsMatchFuzzy(pb.homeTeam, nb.homeTeam) ||
+        !teamsMatchFuzzy(pb.awayTeam, nb.awayTeam)
+      ) return false;
+      return normalizeSelection(pb.selection) !== nbNorm;
+    });
+
+    return !contradicts;
+  });
 }
 
 /**
