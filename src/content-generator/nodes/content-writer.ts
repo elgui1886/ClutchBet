@@ -881,7 +881,21 @@ function buildSportsData(
 
   if (relevantFixtures.length === 0) {
     const sportName = isTennisFormat ? "tennis" : "calcio";
-    let noMatchMsg = `Nessuna partita di ${sportName} disponibile oggi. Genera contenuto basato sulle prossime partite in programma o su dati generali.`;
+
+    if (format.type === "conversational") {
+      // Conversational formats with no fixtures: tell LLM explicitly NOT to reference any matches
+      let noMatchMsg =
+        `⚠️ NESSUNA PARTITA DISPONIBILE OGGI.\n\n` +
+        `Non ci sono fixture di ${sportName} nei dati. ` +
+        `NON citare nessuna partita, risultato, squadra o giocatore — né di oggi né di ieri. ` +
+        `Non inventare risultati passati. Non fare riferimenti a match specifici. ` +
+        `Scrivi un messaggio generico: saluta la community, parla del mood, del meteo, della settimana. ` +
+        `Se non hai nulla di sportivo da dire, va benissimo un messaggio breve e leggero senza calcio.`;
+      if (dailyResultsSection) noMatchMsg += "\n\n" + dailyResultsSection;
+      return noMatchMsg;
+    }
+
+    let noMatchMsg = `Nessuna partita di ${sportName} disponibile oggi. Non ci sono dati su cui basare il contenuto. NON inventare partite, risultati o quote.`;
     if (dailyResultsSection) noMatchMsg += "\n\n" + dailyResultsSection;
     return noMatchMsg;
   }
