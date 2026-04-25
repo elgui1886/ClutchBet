@@ -20,7 +20,7 @@ export interface TrackedBet {
   kickoff: string;               // HH:MM
   selection: string;             // e.g. "Over 2.5", "1", "Goal"
   odds: number;
-  result?: "won" | "lost" | "void";
+  result?: "won" | "lost" | "void" | "result_unavailable";
   matchScore?: string;           // e.g. "2-1"
   recapPublished?: boolean;
   resolvedAt?: string;           // ISO timestamp
@@ -191,7 +191,7 @@ export function getUnrecappedBets(profile: string): TrackedBet[] {
  */
 export function updateBetResult(
   betId: string,
-  result: "won" | "lost" | "void",
+  result: "won" | "lost" | "void" | "result_unavailable",
   matchScore: string
 ): void {
   const db = getDb();
@@ -340,6 +340,7 @@ function computeSchedina(slipId: string, bets: TrackedBet[]): Schedina {
 
   const won = bets.filter((b) => b.result === "won").length;
   const lost = bets.filter((b) => b.result === "lost").length;
+  const unavailable = bets.filter((b) => b.result === "result_unavailable").length;
   const pending = bets.filter((b) => !b.result).length;
 
   let status: Schedina["status"];
@@ -347,8 +348,11 @@ function computeSchedina(slipId: string, bets: TrackedBet[]): Schedina {
     status = "bruciata";
   } else if (pending === bets.length) {
     status = "pending";
-  } else if (pending === 0 && won === bets.length) {
+  } else if (pending === 0 && unavailable === 0 && won === bets.length) {
     status = "vinta";
+  } else if (pending === 0 && unavailable > 0 && lost === 0) {
+    // All resolved but some unavailable — treat as void/inconclusive
+    status = won > 0 ? "in_corsa" : "pending";
   } else {
     status = "in_corsa";
   }

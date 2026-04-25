@@ -35,6 +35,7 @@ const MATCH_DURATION_MS = 2 * 60 * 60 * 1000;   // 2 hours
 const RETRY_DELAY_MS = 30 * 60 * 1000;           // 30 minutes
 const MAX_RETRIES = 3;
 const SCAN_INTERVAL_MS = 60 * 60 * 1000;          // 1 hour — rescan for new bets
+const ABSOLUTE_TIMEOUT_MS = 4 * 60 * 60 * 1000;  // 4 hours from kickoff — hard cutoff
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -99,6 +100,17 @@ function dateInTimezone(dateStr: string, timeStr: string, tz: string): Date {
 function getEstimatedEndTime(bet: TrackedBet, tz: string): Date {
   const d = dateInTimezone(bet.date, bet.kickoff, tz);
   return new Date(d.getTime() + MATCH_DURATION_MS);
+}
+
+/** Returns the absolute timeout deadline for a bet (kickoff + ABSOLUTE_TIMEOUT_MS). */
+function getAbsoluteDeadline(bet: TrackedBet, tz: string): Date {
+  const d = dateInTimezone(bet.date, bet.kickoff, tz);
+  return new Date(d.getTime() + ABSOLUTE_TIMEOUT_MS);
+}
+
+/** Returns true if the absolute timeout has passed for a bet. */
+function isAbsoluteTimeoutExpired(bet: TrackedBet, tz: string): boolean {
+  return Date.now() > getAbsoluteDeadline(bet, tz).getTime();
 }
 
 async function enqueueCheck(fn: () => Promise<void>): Promise<void> {
@@ -178,6 +190,19 @@ function scanAndSchedule(config: ProfileCfg, profile: ProfileConfig, profileSlug
   for (const [key, bets] of matchGroups) {
     if (scheduledChecks.has(key)) continue;
 
+    // Skip matches past the absolute timeout — mark as result_unavailable
+    const representative = bets[0];
+    if (isAbsoluteTimeoutExpired(representative, tz)) {
+      console.log(
+        `   ⏭️  ${representative.homeTeam} vs ${representative.awayTeam} (kick ${representative.kickoff}): ` +
+        `absolute timeout expired (kick + ${ABSOLUTE_TIMEOUT_MS / 3_600_000}h). Marking as result_unavailable.`
+      );
+      for (const bet of bets) {
+        updateBetResult(bet.id, "result_unavailable", "N/A");
+      }
+      continue;
+    }
+
     const estimatedEnd = getEstimatedEndTime(bets[0], tz);
     const delayMs = Math.max(0, estimatedEnd.getTime() - Date.now());
 
@@ -253,10 +278,28 @@ async function runCheck(key: string, config: ProfileCfg, profile: ProfileConfig,
 
   // Handle unresolved — retry or give up
   if (unresolved.length > 0) {
-    if (check.retryCount < MAX_RETRIES) {
+    const tz = config.timezone ?? "Europe/Rome";
+    const deadline = getAbsoluteDeadline(b, tz);
+    const timeoutExpired = Date.now() > deadline.getTime();
+
+    if (timeoutExpired) {
+      // Absolute timeout: mark all unresolved bets as result_unavailable
+      console.log(
+        `   ⏰ Absolute timeout expired for ${b.homeTeam} vs ${b.awayTeam} ` +
+        `(kick ${b.kickoff} + ${ABSOLUTE_TIMEOUT_MS / 3_600_000}h). Marking ${unresolved.length} bet(s) as result_unavailable.`
+      );
+      for (const bet of unresolved) {
+        updateBetResult(bet.id, "result_unavailable", "N/A");
+        bet.result = "result_unavailable";
+        bet.matchScore = "N/A";
+      }
+      scheduledChecks.delete(key);
+    } else if (check.retryCount < MAX_RETRIES) {
       check.retryCount++;
       console.log(
-        `   ⏳ ${b.homeTeam} vs ${b.awayTeam}: not finished. Retry ${check.retryCount}/${MAX_RETRIES} in 30 min`
+        `   ⏳ ${b.homeTeam} vs ${b.awayTeam}: not finished. ` +
+        `Retry ${check.retryCount}/${MAX_RETRIES} in 30 min ` +
+        `(absolute deadline: ${formatTime(deadline)})`
       );
       check.bets = unresolved;
       check.timer = setTimeout(
@@ -264,10 +307,29 @@ async function runCheck(key: string, config: ProfileCfg, profile: ProfileConfig,
         RETRY_DELAY_MS
       );
     } else {
-      console.log(
-        `   ⚠️  Max retries (${MAX_RETRIES}) reached for ${b.homeTeam} vs ${b.awayTeam}. Skipping.`
-      );
-      scheduledChecks.delete(key);
+      // Max retries reached but absolute timeout not yet expired — schedule one more at deadline
+      const remainingMs = deadline.getTime() - Date.now();
+      if (remainingMs > RETRY_DELAY_MS) {
+        console.log(
+          `   ⏳ Max retries reached but deadline not expired. Scheduling final check at ${formatTime(deadline)}`
+        );
+        check.retryCount = 0; // reset for the final window
+        check.bets = unresolved;
+        check.timer = setTimeout(
+          () => enqueueCheck(() => runCheck(key, config, profile, competitions)),
+          remainingMs
+        );
+      } else {
+        // Very close to deadline — one more try then give up
+        console.log(
+          `   ⏳ Max retries reached, near deadline. Final retry in ${Math.round(remainingMs / 60_000)} min.`
+        );
+        check.bets = unresolved;
+        check.timer = setTimeout(
+          () => enqueueCheck(() => runCheck(key, config, profile, competitions)),
+          remainingMs
+        );
+      }
     }
   } else {
     scheduledChecks.delete(key);
@@ -422,7 +484,8 @@ async function fetchResults(
         const url = new URL(`${FOOTBALL_DATA_BASE}/competitions/${competition}/matches`);
         url.searchParams.set("dateFrom", date);
         url.searchParams.set("dateTo", date);
-        url.searchParams.set("status", "FINISHED");
+        // No status filter — free tier delays FINISHED status for hours.
+        // We fetch all matches and filter locally using status + score fallback.
 
         const response = await fetch(url.toString(), {
           headers: { "X-Auth-Token": apiKey },
@@ -446,7 +509,12 @@ async function fetchResults(
         };
 
         for (const match of data.matches) {
-          if (match.status !== "FINISHED") continue;
+          // Accept FINISHED status, or use score fallback:
+          // if fullTime score is populated, the match is done regardless of status text
+          const isFinished =
+            match.status === "FINISHED" ||
+            (match.score.fullTime.home != null && match.score.fullTime.away != null);
+          if (!isFinished) continue;
           allResults.push({
             fixtureId: match.id,
             homeTeam: match.homeTeam.name,

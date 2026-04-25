@@ -159,7 +159,8 @@ async function fetchResults(bets: TrackedBet[], config: ProfileCfg, competitions
         const url = new URL(`${FOOTBALL_DATA_BASE}/competitions/${competition}/matches`);
         url.searchParams.set("dateFrom", date);
         url.searchParams.set("dateTo", date);
-        url.searchParams.set("status", "FINISHED");
+        // No status filter — free tier delays FINISHED status for hours.
+        // We fetch all matches and filter locally using status + score fallback.
 
         const response = await fetch(url.toString(), {
           headers: { "X-Auth-Token": apiKey },
@@ -184,7 +185,12 @@ async function fetchResults(bets: TrackedBet[], config: ProfileCfg, competitions
         };
 
         for (const match of data.matches) {
-          if (match.status !== "FINISHED") continue;
+          // Accept FINISHED status, or use score fallback:
+          // if fullTime score is populated, the match is done regardless of status text
+          const isFinished =
+            match.status === "FINISHED" ||
+            (match.score.fullTime.home != null && match.score.fullTime.away != null);
+          if (!isFinished) continue;
           allResults.push({
             fixtureId: match.id,
             homeTeam: match.homeTeam.name,

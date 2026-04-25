@@ -1082,11 +1082,15 @@ function buildDailyResultsSection(schedine?: Schedina[]): string {
   lines.push("");
 
   for (const s of schedine) {
+    // Skip schedine that have any result_unavailable bets — don't mention them at all
+    const hasUnavailable = s.bets.some((b) => b.result === "result_unavailable");
+    if (hasUnavailable) continue;
+
     const statusIcon = s.status === "vinta" ? "✅" : s.status === "bruciata" ? "❌" : s.status === "in_corsa" ? "⏳" : "🕐";
     lines.push(`${statusIcon} **${s.formatName}** (quota ${s.totalOdds.toFixed(2)}) — ${s.status.toUpperCase()}`);
     for (const b of s.bets) {
       const betIcon = b.result === "won" ? "✅" : b.result === "lost" ? "❌" : "⏳";
-      const score = b.matchScore ? ` (${b.matchScore})` : "";
+      const score = b.matchScore && b.matchScore !== "N/A" ? ` (${b.matchScore})` : "";
       lines.push(`   ${betIcon} ${b.homeTeam} vs ${b.awayTeam}${score}: ${b.selection} @ ${b.odds}`);
     }
 
