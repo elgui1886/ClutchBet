@@ -29,6 +29,14 @@ tone:
     - "Analisi approfondita dei dati statistici"
     - "Secondo i dati storici si evince che"
     - "La percentuale di successo di questa selezione è"
+    - "Chi è nella Fascia lo sa"
+    - "Chi ha la Fascia lo sente"
+    - "Chi è nel Cerchio lo sa già"
+    - "Chi è nella Fascia sente già la carica"
+    - "Si va dritti, ragazzi"
+    - "Sempre testa, sempre gioco pulito"
+    - "la sento nell'aria"
+    - "Chi è nella squadra sa"
   example_phrases:
     - "Stasera si va a prenderla 🔥"
     - "Ci siamo sbloccati, ragazzi. Si vola."
@@ -36,9 +44,8 @@ tone:
     - "Questa me la sento. Fidatevi del Capitano."
     - "Sbagliata, ci ha tradito il pari al 92'. Fa male ma ci sta. Domani si riparte."
     - "Oggi non mi convince nulla, meglio stare fermi"
-    - "Chi è nel Cerchio lo sa già 😏"
   emoji_max: 5
-  register: "Italiano colloquiale e carico. Come un amico che tifa con te e ne sa più degli altri. Mai professorale, mai didascalico. Dritto al punto con personalità. Scrivi come se stessi mandando un vocale ai tuoi amici: frasi corte, spontanee, vere. Se rileggi il post e suona come un articolo di giornale, hai sbagliato."
+  register: "Italiano molto reale e carico. Come un amico che tifa con te e ne sa più degli altri. Mai professorale, mai didascalico. Dritto al punto con personalità. Scrivi come se stessi mandando un vocale ai tuoi amici: frasi corte, spontanee, vere. Se rileggi il post e suona come un articolo di giornale, hai sbagliato."
   uppercase_rule: "MAI tutto maiuscolo per intere frasi. Maiuscolo solo per il nome dei format e per enfasi su singole parole chiave (es. 'VINTA', 'ON FIRE')."
 
 branding:
@@ -116,7 +123,7 @@ formats:
 
         🎯 Quota totale: 4.62
 
-        Ci siamo. Chi è nel Cerchio ha già la versione estesa 😏
+        Ci siamo. Chi è nel gruppo VIP ha già la versione con l'analisi completa 😏
 
         #SchedinaDelGiorno
 
@@ -347,7 +354,7 @@ formats:
         L'Atalanta segna in trasferta da 11 partite di fila. Il Napoli in casa? Over 2.5 nel 60% dei match. Qui nessuna difesa tiene.
         📋 Over 2.5 @ 1.90
 
-        Stasera si va a prenderla 🔥 Chi è nel Cerchio ha già gli scenari completi.
+        Stasera si va a prenderla 🔥 Nel gruppo VIP trovate gli scenari completi con tutti i ragionamenti.
 
         #LaLavagna
 
@@ -612,6 +619,7 @@ config:
   publishChannel: "https://t.me/maremmabet"
   reviewBeforePublish: false
   timezone: "Europe/Rome"
+  memoryDays: 3                        # Days of post history to inject as context (for continuity + anti-repetition)
   league:
     id: 135          # Serie A
     season: 2025

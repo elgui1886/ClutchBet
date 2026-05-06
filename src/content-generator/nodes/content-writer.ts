@@ -6,6 +6,7 @@ import { renderBetSlipImage, type BetSlip } from "../../generation/image-rendere
 import { generateBackground } from "../../generation/background-generator.js";
 import { profileSlugFromPath, getSchedineForDate, getSchedineForPeriod, getWeeklyStats, getStatsForPeriod, type Schedina } from "../../shared/bet-tracker.js";
 import { loadTopicHistory, saveTopicEntry } from "../../shared/content-history.js";
+import { buildPostMemoryContext, type PostMemoryConfig } from "../../shared/post-memory.js";
 import type {
   ContentStateType,
   ContentItem,
@@ -44,6 +45,15 @@ function nowMinutesInRome(): number {
 /** Earliest hour at which bet-format posts can be published (12:00). */
 const PUBLISH_START_MINUTES = 12 * 60;
 
+/** Random jitter range in minutes to make publish times less predictable. */
+const PUBLISH_JITTER_MINUTES = 15;
+
+/** Adds random jitter (±PUBLISH_JITTER_MINUTES) to a time in minutes. */
+function addJitter(minutes: number): number {
+  const jitter = Math.floor(Math.random() * (PUBLISH_JITTER_MINUTES * 2 + 1)) - PUBLISH_JITTER_MINUTES;
+  return minutes + jitter;
+}
+
 /**
  * Computes dynamic publish time by spreading posts evenly from 12:00
  * until 1h before the earliest kickoff in the schedina.
@@ -75,14 +85,14 @@ function computeDynamicPublishTime(
 
   if (deadlineMinutes <= PUBLISH_START_MINUTES) {
     // Matches are early (before 13:00) — fall back to 10-min spacing from now
-    pubMinutes = PUBLISH_START_MINUTES + formatIndex * 10;
+    pubMinutes = addJitter(PUBLISH_START_MINUTES + formatIndex * 10);
   } else if (totalBetFormats <= 1) {
-    // Single bet post → publish at deadline
-    pubMinutes = deadlineMinutes;
+    // Single bet post → publish at deadline with jitter
+    pubMinutes = addJitter(deadlineMinutes);
   } else {
     // Spread evenly: first post at 12:00, last post at deadline
     const interval = (deadlineMinutes - PUBLISH_START_MINUTES) / (totalBetFormats - 1);
-    pubMinutes = Math.round(PUBLISH_START_MINUTES + interval * formatIndex);
+    pubMinutes = addJitter(Math.round(PUBLISH_START_MINUTES + interval * formatIndex));
   }
 
   if (pubMinutes <= nowMinutesInRome()) return undefined;
@@ -147,6 +157,15 @@ export async function contentWriterNode(
     // Compute publish time
     let publishTime = format.publish_time;
 
+    // Apply jitter to fixed publish times (e.g. "14:00" → "13:47" or "14:12")
+    if (publishTime && !format.publish_before_match && !hasBets(format)) {
+      const [fh, fm] = publishTime.split(":").map(Number);
+      const jittered = addJitter(fh * 60 + fm);
+      const jH = Math.floor(jittered / 60);
+      const jM = jittered % 60;
+      publishTime = `${String(jH).padStart(2, "0")}:${String(jM).padStart(2, "0")}`;
+    }
+
     if (format.publish_before_match && fixtures.length > 0) {
       // Late-generation format: publish N minutes before earliest kickoff
       // Stagger multiple late formats 15 minutes apart
@@ -192,7 +211,7 @@ function computeBeforeMatchTime(
 
   kickoffs.sort();
   const [h, m] = kickoffs[0].split(":").map(Number);
-  const pubMinutes = h * 60 + m - minutesBefore;
+  const pubMinutes = addJitter(h * 60 + m - minutesBefore);
 
   if (pubMinutes <= nowMinutesInRome()) return undefined;
 
@@ -275,7 +294,14 @@ export async function generateSingleFormat(
     }
   }
 
-  const prompt = buildPrompt(template, profile, format, activeFixtures, pastTopics, alreadyPublishedBets, dailyResults, weeklyData, monthlyData);
+  // Build post memory context (recent posts + storyline + feedback)
+  const memoryDays = profile.config?.memoryDays ?? 3;
+  const postMemoryContext = buildPostMemoryContext(profileSlug, { memoryDays }, format.slug);
+  if (postMemoryContext) {
+    console.log(`  🧠 Post memory: ${memoryDays} days of context injected`);
+  }
+
+  const prompt = buildPrompt(template, profile, format, activeFixtures, pastTopics, alreadyPublishedBets, dailyResults, weeklyData, monthlyData, postMemoryContext);
   const systemMessages = buildSystemMessages(profile);
 
   const MAX_RETRIES = 5;
@@ -456,6 +482,7 @@ function buildPrompt(
   dailyResults?: Schedina[],
   weeklyData?: { schedine: Schedina[]; stats: ReturnType<typeof getWeeklyStats> },
   monthlyData?: { schedine: Schedina[]; stats: ReturnType<typeof getStatsForPeriod> },
+  postMemoryContext?: string,
 ): string {
   const tonePrinciples = profile.tone.principles
     .map((p, i) => `${i + 1}. ${p}`)
@@ -495,9 +522,9 @@ function buildPrompt(
       `## Schedine già pubblicate oggi\n\n` +
       `Le seguenti selezioni sono già state pubblicate in altri post oggi. ` +
       `Rispetta la regola 16: massimo il 50% delle tue selezioni può coincidere con quelle sotto.\n\n` +
-      `**REGOLA ANTI-CONTRADDIZIONE (CRITICA)**: Per le partite già presenti sotto, NON puoi MAI proporre un esito diverso sullo stesso mercato. ` +
-      `Se hai già detto "1" (vittoria casa) per una partita, NON puoi dire "X" (pareggio) o "2" (vittoria trasferta) nella stessa partita. ` +
-      `Puoi usare la stessa partita con un mercato DIVERSO (es. Over 2.5, Goal, marcatore) ma MAI contraddire l'esito 1X2 già pubblicato. ` +
+      `**REGOLA ANTI-CONTRADDIZIONE (CRITICA)**: Per le partite già presenti sotto, NON puoi MAI proporre l'esito OPPOSTO sullo stesso mercato. ` +
+      `Esempi VIETATI: hai detto "1" → non puoi dire "X" o "2". Hai detto "Under 2.5" → non puoi dire "Over 2.5". Hai detto "Goal" → non puoi dire "NoGoal". ` +
+      `Puoi invece usare la stessa partita con un mercato DIVERSO (es. hai detto "1" e proponi "Over 2.5" → OK). ` +
       `Contraddirsi è INACCETTABILE: i nostri follower vedono tutti i post.\n\n` +
       lines.join("\n");
   }
@@ -527,7 +554,8 @@ function buildPrompt(
     .replace("{style_variant}", styleVariant)
     .replace("{sports_data}", sportsData)
     .replace("{already_published_bets}", alreadyPublishedSection)
-    .replace("{affiliate_rules}", affiliateRules);
+    .replace("{affiliate_rules}", affiliateRules)
+    .replace("{post_memory}", postMemoryContext ?? "");
 }
 
 function buildExamplePostsSection(format: FormatConfig): string {
@@ -686,13 +714,20 @@ function checkBetOverlap(
  *
  * Groups:
  * - "result": 1, X, 2 (match outcome — these contradict each other)
- * - null: different market types (over/under, goal/nogoal, scorers, cards)
- *         which don't contradict a result bet
+ * - "over_under": Over 2.5 / Under 2.5 (contradict each other)
+ * - "goal_nogoal": Goal / NoGoal (contradict each other)
+ * - null: other market types (scorers, cards, etc.) that don't contradict
  */
 function getMarketGroup(selection: string): string | null {
   const sel = selection.toLowerCase().trim();
   if (sel === "1" || sel === "home" || sel === "x" || sel === "draw" || sel === "2" || sel === "away") {
     return "result";
+  }
+  if (sel.includes("over") || sel.includes("under")) {
+    return "over_under";
+  }
+  if (sel === "goal" || sel === "nogol" || sel === "nogoal" || sel === "btts" || sel.includes("goal sì") || sel.includes("goal no")) {
+    return "goal_nogoal";
   }
   return null;
 }
@@ -700,12 +735,18 @@ function getMarketGroup(selection: string): string | null {
 /**
  * Returns the normalized direction within a market group.
  * E.g. "1"/"home" → "1", "x"/"draw" → "x", "2"/"away" → "2"
+ * "Over 2.5" → "over", "Under 2.5" → "under"
+ * "Goal" → "goal", "NoGoal" → "nogoal"
  */
 function normalizeSelection(selection: string): string {
   const sel = selection.toLowerCase().trim();
   if (sel === "1" || sel === "home") return "1";
   if (sel === "x" || sel === "draw") return "x";
   if (sel === "2" || sel === "away") return "2";
+  if (sel.includes("over")) return "over";
+  if (sel.includes("under")) return "under";
+  if (sel === "goal" || sel === "btts" || sel.includes("goal sì")) return "goal";
+  if (sel === "nogol" || sel === "nogoal" || sel.includes("goal no")) return "nogoal";
   return sel;
 }
 

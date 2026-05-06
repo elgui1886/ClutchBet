@@ -3,11 +3,13 @@ import cron from "node-cron";
 import { spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import * as yaml from "yaml";
 import {
   hasContentForDate,
   getPendingContent,
   expireOldContent,
 } from "./shared/content-store.js";
+import { checkReactionsForProfile } from "./shared/reaction-checker.js";
 
 // ── Profile argument ─────────────────────────────────────────
 
@@ -122,6 +124,24 @@ async function dailyRun(): Promise<void> {
 
   try {
     const date = today();
+
+    // Check Telegram reactions on recent posts for feedback
+    try {
+      const profileYaml = yaml.parse(fs.readFileSync(PROFILE_PATH, "utf-8"));
+      const publishChannel = profileYaml?.config?.publishChannel;
+      if (publishChannel) {
+        log(`🔍 Checking Telegram reactions for feedback...`);
+        const { checked, rated } = await checkReactionsForProfile(PROFILE_NAME, publishChannel);
+        if (rated > 0) {
+          log(`  👍👎 Updated ${rated}/${checked} post rating(s) from reactions.`);
+        } else if (checked > 0) {
+          log(`  ℹ️  Checked ${checked} post(s), no new reactions.`);
+        }
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      log(`⚠️  Reaction check failed (non-blocking): ${msg}`);
+    }
 
     // Expire old content from previous days
     const expired = expireOldContent(date);

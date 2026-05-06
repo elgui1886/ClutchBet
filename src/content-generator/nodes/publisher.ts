@@ -7,6 +7,7 @@ import {
   markContentPublished,
   updateContentGenerated,
   contentItemId,
+  saveTelegramMsgId,
 } from "../../shared/content-store.js";
 import { generateSingleFormat } from "./content-writer.js";
 import { fetchOfficialLineups } from "./data-fetcher.js";
@@ -186,22 +187,34 @@ export async function publisherNode(
 
         console.log(`  📨 Sending: ${item.formatName}...`);
 
+        let sentMsgId: number | undefined;
+
         if (item.imageBase64) {
           const imageBuffer = Buffer.from(item.imageBase64, "base64");
           const file = new CustomFile("post.png", imageBuffer.length, "", imageBuffer);
 
           if (item.text.length <= MAX_CAPTION) {
-            await client.sendFile(peer, { file, caption: item.text });
+            const sent = await client.sendFile(peer, { file, caption: item.text });
+            sentMsgId = sent?.id;
           } else {
             await client.sendFile(peer, { file });
-            await client.sendMessage(peer, { message: item.text });
+            const sent = await client.sendMessage(peer, { message: item.text });
+            sentMsgId = sent?.id;
           }
         } else {
-          await client.sendMessage(peer, { message: item.text });
+          const sent = await client.sendMessage(peer, { message: item.text });
+          sentMsgId = sent?.id;
         }
 
         item.published = true;
-        markContentPublished(contentItemId(today, profileSlug, item.formatSlug));
+        const itemId = contentItemId(today, profileSlug, item.formatSlug);
+        markContentPublished(itemId);
+
+        // Save Telegram message ID for reaction-based feedback
+        if (sentMsgId) {
+          saveTelegramMsgId(itemId, sentMsgId);
+        }
+
         results.push(`✅ ${item.formatName}: published at ${item.publishTime ?? "now"}${item.imageBase64 ? " (with image)" : ""}`);
         console.log(`  ✅ ${item.formatName} published${item.imageBase64 ? " (with image)" : ""}\n`);
 

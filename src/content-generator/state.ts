@@ -108,6 +108,7 @@ export interface ProfileConfig {
     publishChannel?: string;
     reviewBeforePublish?: boolean;
     timezone?: string;
+    memoryDays?: number;  // How many days of post history to inject as context (default: 3)
     league?: {
       id?: number;
       season?: number;
