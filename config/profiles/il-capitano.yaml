@@ -641,6 +641,8 @@ config:
         label: "Champions League"
       - code: "CI"
         label: "Coppa Italia"
+      - code: "EL"
+        label: "Europa League"
   affiliate:
     link: "https://www.danzbet.com"
     name: "DanzBet"
